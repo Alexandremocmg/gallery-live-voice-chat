@@ -466,7 +466,10 @@ fun GalleryNavHost(
       enterTransition = { slideUpEnter() },
       exitTransition = { slideDownExit() }
     ) {
-      com.google.ai.edge.gallery.voice.presentation.VoiceAppScreen()
+      com.google.ai.edge.gallery.voice.presentation.VoiceAppScreen(
+        modelManagerViewModel = modelManagerViewModel,
+        onBackClicked = { navController.navigateUp() }
+      )
     }
   }
 

@@ -11,8 +11,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,11 +25,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VoiceAppScreen() {
+fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: () -> Unit = {}) {
     val context = LocalContext.current
-    val viewModel: VoiceViewModel = viewModel(factory = VoiceViewModel.Factory(context))
+    val viewModel: VoiceViewModel = viewModel(
+        factory = VoiceViewModel.Factory(context, modelManagerViewModel)
+    )
 
     // Request RECORD_AUDIO permission on entry
     var hasMicPermission by remember {
@@ -51,38 +57,47 @@ fun VoiceAppScreen() {
         }
     }
 
-    if (hasMicPermission) {
-        LiveChatScreen(viewModel)
-    } else {
-        // Show permission request UI
-        Column(
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Kabem Voice (Ao Vivo)") },
+                navigationIcon = {
+                    IconButton(onClick = onBackClicked) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        }
+    ) { innerPadding ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .padding(innerPadding)
         ) {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Permissão de Microfone",
-                style = MaterialTheme.typography.headlineSmall
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = "O Kabem Voice precisa acessar o microfone para ouvir você.",
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) {
-                Text("Conceder Permissão")
+            if (hasMicPermission) {
+                val uiState by viewModel.uiState.collectAsState()
+
+                when (val state = uiState) {
+                    is VoiceUiState.NoModel -> {
+                        NoModelScreen(onBackClicked)
+                    }
+                    is VoiceUiState.Loading -> {
+                        LoadingScreen(state.message)
+                    }
+                    is VoiceUiState.Error -> {
+                        ErrorScreen(state.message, onBackClicked)
+                    }
+                    else -> {
+                        LiveChatScreen(viewModel)
+                    }
+                }
+            } else {
+                PermissionRequestScreen {
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
             }
         }
     }
@@ -92,6 +107,7 @@ fun VoiceAppScreen() {
 fun LiveChatScreen(viewModel: VoiceViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val recognizedText by viewModel.recognizedText.collectAsState()
+    val lastResponse by viewModel.lastResponse.collectAsState()
 
     Column(
         modifier = Modifier
@@ -100,78 +116,86 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Top: Status label
-        Spacer(modifier = Modifier.height(48.dp))
+        // Status indicator
         Text(
             text = when (uiState) {
-                is VoiceUiState.Idle -> "Toque para falar"
-                is VoiceUiState.Listening -> "Ouvindo..."
-                is VoiceUiState.Generating -> "Processando..."
-                is VoiceUiState.Speaking -> "Kabem está falando..."
-                is VoiceUiState.Error -> (uiState as VoiceUiState.Error).message
+                is VoiceUiState.Idle -> "Pronto para conversar"
+                is VoiceUiState.Listening -> "Estou ouvindo..."
+                is VoiceUiState.Generating -> "Pensando..."
+                is VoiceUiState.Speaking -> "Falando..."
+                else -> ""
             },
             style = MaterialTheme.typography.titleLarge,
-            color = if (uiState is VoiceUiState.Error)
-                MaterialTheme.colorScheme.error
-            else
+            color = if (uiState is VoiceUiState.Listening)
                 MaterialTheme.colorScheme.primary
+            else
+                MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        // Middle: Recognized text display
-        Box(
+        // Conversation panel
+        Column(
             modifier = Modifier
                 .weight(1f)
+                .fillMaxWidth()
                 .padding(vertical = 24.dp),
-            contentAlignment = Alignment.Center
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (recognizedText.isNotBlank()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Text(
-                        text = recognizedText,
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center
-                    )
-                }
+                Text(
+                    text = "Você disse:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = recognizedText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            if (lastResponse.isNotBlank() && uiState !is VoiceUiState.Generating) {
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(
+                    text = "Kabem respondeu:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = lastResponse,
+                    style = MaterialTheme.typography.headlineSmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
         }
 
-        // Bottom: Animated mic button
+        // Bottom control section with waveform pulse and mic button
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
         ) {
-            // Pulse animation when active
+            // Ripple animation
             if (uiState is VoiceUiState.Listening || uiState is VoiceUiState.Speaking) {
                 WaveformAnimation(isListening = uiState is VoiceUiState.Listening)
             }
 
-            // PTT Button
             val isActive = uiState is VoiceUiState.Listening
             val buttonColor = if (isActive)
                 MaterialTheme.colorScheme.error
             else
                 MaterialTheme.colorScheme.primary
 
-            val isClickable = uiState is VoiceUiState.Idle ||
-                    uiState is VoiceUiState.Listening ||
-                    uiState is VoiceUiState.Speaking
-
             Box(
                 modifier = Modifier
                     .size(110.dp)
                     .background(buttonColor, CircleShape)
-                    .then(
-                        if (isClickable) Modifier.clickable { viewModel.toggleListening() }
-                        else Modifier
-                    ),
+                    .clickable { viewModel.toggleListening() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -182,8 +206,6 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
@@ -191,20 +213,20 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
 fun WaveformAnimation(isListening: Boolean) {
     val infiniteTransition = rememberInfiniteTransition(label = "waveform")
 
-    val primaryScale by infiniteTransition.animateFloat(
+    val scale1 by infiniteTransition.animateFloat(
         initialValue = 1.1f,
-        targetValue = 1.5f,
+        targetValue = 1.6f,
         animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
+            animation = tween(700, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "scale1"
     )
-    val secondaryScale by infiniteTransition.animateFloat(
+    val scale2 by infiniteTransition.animateFloat(
         initialValue = 1.3f,
-        targetValue = 1.7f,
+        targetValue = 1.9f,
         animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
+            animation = tween(1000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "scale2"
@@ -219,14 +241,139 @@ fun WaveformAnimation(isListening: Boolean) {
         Box(
             modifier = Modifier
                 .size(110.dp)
-                .scale(secondaryScale)
-                .background(color.copy(alpha = 0.15f), CircleShape)
+                .scale(scale2)
+                .background(color.copy(alpha = 0.12f), CircleShape)
         )
         Box(
             modifier = Modifier
                 .size(110.dp)
-                .scale(primaryScale)
-                .background(color.copy(alpha = 0.25f), CircleShape)
+                .scale(scale1)
+                .background(color.copy(alpha = 0.22f), CircleShape)
         )
+    }
+}
+
+@Composable
+fun NoModelScreen(onBackClicked: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = null,
+            modifier = Modifier.size(72.dp),
+            tint = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Nenhum modelo baixado",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "O Kabem Voice roda localmente no seu celular. Para começar, volte para a tela inicial, selecione a categoria 'AI Chat' e baixe pelo menos um modelo (ex: Gemma 2B).",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(onClick = onBackClicked) {
+            Text("Ir para Tela Inicial")
+        }
+    }
+}
+
+@Composable
+fun LoadingScreen(message: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(64.dp))
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+fun ErrorScreen(message: String, onBackClicked: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = null,
+            modifier = Modifier.size(72.dp),
+            tint = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Erro no Carregamento",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(onClick = onBackClicked) {
+            Text("Voltar")
+        }
+    }
+}
+
+@Composable
+fun PermissionRequestScreen(onRequest: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Mic,
+            contentDescription = null,
+            modifier = Modifier.size(72.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Permissão de Microfone Requerida",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "O Kabem Voice precisa acessar o microfone para ouvir você em tempo real.",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(onClick = onRequest) {
+            Text("Conceder Permissão")
+        }
     }
 }
