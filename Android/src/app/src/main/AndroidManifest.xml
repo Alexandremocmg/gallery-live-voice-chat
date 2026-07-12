@@ -115,19 +115,15 @@
             tools:node="merge">
         </service>
 
-        <!-- For Firebase Analytics. -->
-        <receiver
-            android:name="com.google.android.gms.measurement.AppMeasurementReceiver"
-            android:enabled="true"
-            android:exported="false" />
-        <service android:name="com.google.android.gms.measurement.AppMeasurementService"
-            android:enabled="true"
-            android:exported="false" />
-        <service
-            android:name="com.google.android.gms.measurement.AppMeasurementJobService"
-            android:enabled="true"
+        <!-- Disable Firebase auto-init to prevent crash when google-services.json is absent -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
             android:exported="false"
-            android:permission="android.permission.BIND_JOB_SERVICE" />
+            tools:node="remove" />
+
+        <!-- For Firebase Analytics (disabled without google-services.json) -->
+        <!-- <receiver android:name="com.google.android.gms.measurement.AppMeasurementReceiver" ... /> -->
 
         <service
             android:name=".GalleryFcmMessagingService"
