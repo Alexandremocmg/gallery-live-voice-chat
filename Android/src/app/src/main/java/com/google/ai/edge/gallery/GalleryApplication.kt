@@ -39,7 +39,11 @@ class GalleryApplication : Application() {
     // Load saved theme.
     ThemeSettings.themeOverride.value = dataStoreRepository.readTheme()
 
-    FirebaseApp.initializeApp(this)
-    firebaseAnalytics?.setAnalyticsCollectionEnabled(dataStoreRepository.readFirebaseAnalytics())
+    try {
+      FirebaseApp.initializeApp(this)
+      firebaseAnalytics?.setAnalyticsCollectionEnabled(dataStoreRepository.readFirebaseAnalytics())
+    } catch (e: Exception) {
+      android.util.Log.w("GalleryApplication", "Firebase not available: ${e.message}")
+    }
   }
 }
