@@ -368,6 +368,7 @@ fun HomeScreen(
                     },
                   ),
               )
+            }
           },
           floatingActionButton = {
             androidx.compose.material3.ExtendedFloatingActionButton(
