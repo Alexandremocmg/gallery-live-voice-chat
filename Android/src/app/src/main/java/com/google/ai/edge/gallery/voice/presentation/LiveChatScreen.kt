@@ -16,11 +16,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.ai.edge.gallery.voice.data.DownloadState
 
 @Composable
-fun VoiceAppScreen(viewModel: VoiceViewModel = viewModel()) {
+fun VoiceAppScreen(viewModel: VoiceViewModel = hiltViewModel()) {
     val downloadState by viewModel.downloadState.collectAsState()
 
     when (downloadState) {

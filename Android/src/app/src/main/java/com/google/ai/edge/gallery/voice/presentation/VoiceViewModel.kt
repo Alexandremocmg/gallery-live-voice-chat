@@ -1,9 +1,12 @@
 package com.google.ai.edge.gallery.voice.presentation
 
-import android.app.Application
+import android.content.Context
 import android.util.Log
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import com.google.ai.edge.gallery.voice.data.DownloadState
 import com.google.ai.edge.gallery.voice.data.ModelDownloader
 import com.google.ai.edge.gallery.voice.domain.SpeechState
@@ -25,9 +28,10 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalApi::class)
-class VoiceViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val context = application.applicationContext
+@HiltViewModel
+class VoiceViewModel @Inject constructor(
+    @ApplicationContext private val context: Context
+) : ViewModel() {
     private val modelDownloader = ModelDownloader(context)
     private val voiceChatManager = VoiceChatManager(context)
 
