@@ -1,0 +1,38 @@
+name: Android CI (Gerar APK Kabem Voice)
+
+on:
+  push:
+    branches: [ "main", "feat/live-voice-chat" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Android/src
+
+    steps:
+    - name: Checkout do Código
+      uses: actions/checkout@v4
+
+    - name: Configurar JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        cache: 'gradle'
+
+    - name: Conceder permissão de execução ao Gradle
+      run: chmod +x gradlew
+
+    - name: Compilar APK de Debug
+      run: ./gradlew assembleDebug
+
+    - name: Salvar APK nos Artifacts do GitHub
+      uses: actions/upload-artifact@v4
+      with:
+        name: Kabem-Voice-Debug-APK
+        path: Android/src/app/build/outputs/apk/debug/app-debug.apk
