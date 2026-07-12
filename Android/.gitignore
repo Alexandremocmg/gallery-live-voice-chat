@@ -49,3 +49,7 @@ google-services.json
 *.hprof
 
 .DS_Store
+
+# Large model files
+*.tflite
+*.bin

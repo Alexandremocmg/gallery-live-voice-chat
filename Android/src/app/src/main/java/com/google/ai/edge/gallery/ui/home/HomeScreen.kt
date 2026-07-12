@@ -56,6 +56,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Flag
@@ -164,6 +165,7 @@ fun HomeScreen(
   navigateToTaskScreen: (Task) -> Unit,
   onModelsClicked: () -> Unit,
   onNotificationsClicked: () -> Unit,
+  onLiveVoiceClicked: () -> Unit = {},
   enableAnimation: Boolean,
   modifier: Modifier = Modifier,
   gm4: Boolean = false,
@@ -366,8 +368,16 @@ fun HomeScreen(
                     },
                   ),
               )
-            }
           },
+          floatingActionButton = {
+            androidx.compose.material3.ExtendedFloatingActionButton(
+              onClick = { onLiveVoiceClicked() },
+              icon = { Icon(Icons.Default.Mic, "Live Voice") },
+              text = { Text("Live Voice") },
+              containerColor = MaterialTheme.colorScheme.primaryContainer,
+              contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+          }
         ) { innerPadding ->
           // Outer box for coloring the background edge to edge.
           Box(

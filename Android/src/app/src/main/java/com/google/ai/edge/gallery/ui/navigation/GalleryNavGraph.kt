@@ -213,6 +213,7 @@ fun GalleryNavHost(
             },
             onModelsClicked = { navController.navigate(ROUTE_MODEL_MANAGER) },
             onNotificationsClicked = { navController.navigate(ROUTE_NOTIFICATIONS) },
+            onLiveVoiceClicked = { navController.navigate("live_voice") },
             gm4 = true,
           )
         }
@@ -457,6 +458,15 @@ fun GalleryNavHost(
           },
         )
       }
+    }
+
+    // Live Voice Chat page
+    composable(
+      route = "live_voice",
+      enterTransition = { slideUpEnter() },
+      exitTransition = { slideDownExit() }
+    ) {
+      com.google.ai.edge.gallery.voice.presentation.VoiceAppScreen()
     }
   }
 
