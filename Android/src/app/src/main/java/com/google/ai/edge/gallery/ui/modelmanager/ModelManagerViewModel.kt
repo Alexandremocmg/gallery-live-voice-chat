@@ -950,6 +950,18 @@ constructor(
         }
 
         if (modelAllowlist == null) {
+          // Try to load bundled allowlist from app assets first.
+          try {
+            val assetContent = context.assets.open("model_allowlist.json").bufferedReader().readText()
+            val gson = Gson()
+            modelAllowlist = gson.fromJson(assetContent, ModelAllowlist::class.java)
+            Log.d(TAG, "Loaded model allowlist from bundled assets.")
+          } catch (e: Exception) {
+            Log.w(TAG, "No bundled allowlist asset found, trying network.", e)
+          }
+        }
+
+        if (modelAllowlist == null) {
           // Load from github.
           var version = BuildConfig.VERSION_NAME.replace(".", "_")
           val url = getAllowlistUrl(version)
