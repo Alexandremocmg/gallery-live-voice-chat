@@ -1,5 +1,6 @@
 package com.google.ai.edge.gallery.voice.presentation
 
+import android.util.Log
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,75 +14,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.ai.edge.gallery.voice.data.DownloadState
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
-fun VoiceAppScreen(viewModel: VoiceViewModel = hiltViewModel()) {
-    val downloadState by viewModel.downloadState.collectAsState()
-
-    when (downloadState) {
-        is DownloadState.Success -> {
-            LiveChatScreen(viewModel)
-        }
-        else -> {
-            LoadingScreen(viewModel, downloadState)
-        }
-    }
-}
-
-@Composable
-fun LoadingScreen(viewModel: VoiceViewModel, downloadState: DownloadState) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Kabem Voice",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
-        
-        Spacer(modifier = Modifier.height(32.dp))
-
-        when (downloadState) {
-            is DownloadState.Idle -> {
-                Text(
-                    text = "O modelo de IA (2GB) precisa ser baixado para funcionar offline.",
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { viewModel.startDownload() }) {
-                    Text("Baixar Modelo (2GB)")
-                }
-            }
-            is DownloadState.Downloading -> {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Baixando modelo...")
-            }
-            is DownloadState.Error -> {
-                Text(
-                    text = "Erro: ${(downloadState as DownloadState.Error).message}",
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { viewModel.startDownload() }) {
-                    Text("Tentar Novamente")
-                }
-            }
-            is DownloadState.Success -> {
-                // Handled in VoiceAppScreen
-            }
-        }
-    }
+fun VoiceAppScreen() {
+    val context = LocalContext.current
+    val viewModel: VoiceViewModel = viewModel(factory = VoiceViewModel.Factory(context))
+    LiveChatScreen(viewModel)
 }
 
 @Composable
@@ -99,23 +41,28 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         // Top Section: Status
         Text(
             text = when (uiState) {
-                is VoiceUiState.Idle -> "Pronto"
+                is VoiceUiState.Idle -> "Pronto para ouvir"
                 is VoiceUiState.Listening -> "Ouvindo..."
-                is VoiceUiState.Generating -> "Pensando..."
+                is VoiceUiState.Generating -> "Processando..."
                 is VoiceUiState.Speaking -> "Falando..."
                 is VoiceUiState.Error -> (uiState as VoiceUiState.Error).message
             },
             style = MaterialTheme.typography.titleLarge,
-            color = if (uiState is VoiceUiState.Error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+            color = if (uiState is VoiceUiState.Error)
+                MaterialTheme.colorScheme.error
+            else
+                MaterialTheme.colorScheme.onSurface
         )
 
-        // Middle Section: Recognized Text (Hidden/Subtle)
+        // Middle Section: Recognized Text
         Text(
             text = recognizedText,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f).padding(vertical = 32.dp)
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 32.dp)
         )
 
         // Bottom Section: Waveform and PTT Button
@@ -131,9 +78,9 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             }
 
             // Big Push To Talk Button
-            val buttonColor = if (uiState is VoiceUiState.Listening) 
-                MaterialTheme.colorScheme.errorContainer 
-            else 
+            val buttonColor = if (uiState is VoiceUiState.Listening)
+                MaterialTheme.colorScheme.errorContainer
+            else
                 MaterialTheme.colorScheme.primaryContainer
 
             Box(
@@ -144,12 +91,15 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (uiState is VoiceUiState.Listening) Icons.Default.Stop else Icons.Default.Mic,
+                    imageVector = if (uiState is VoiceUiState.Listening)
+                        Icons.Default.Stop
+                    else
+                        Icons.Default.Mic,
                     contentDescription = "Push to Talk",
                     modifier = Modifier.size(48.dp),
-                    tint = if (uiState is VoiceUiState.Listening) 
-                        MaterialTheme.colorScheme.onErrorContainer 
-                    else 
+                    tint = if (uiState is VoiceUiState.Listening)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
                         MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }

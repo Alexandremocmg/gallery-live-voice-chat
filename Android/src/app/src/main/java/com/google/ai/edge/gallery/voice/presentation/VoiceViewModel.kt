@@ -3,23 +3,12 @@ package com.google.ai.edge.gallery.voice.presentation
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
 import com.google.ai.edge.gallery.voice.data.DownloadState
 import com.google.ai.edge.gallery.voice.data.ModelDownloader
 import com.google.ai.edge.gallery.voice.domain.SpeechState
 import com.google.ai.edge.gallery.voice.domain.VoiceChatManager
-import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Contents
-import com.google.ai.edge.litertlm.Conversation
-import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
-import com.google.ai.edge.litertlm.ExperimentalApi
-import com.google.ai.edge.litertlm.Message
-import com.google.ai.edge.litertlm.MessageCallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,11 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalApi::class)
-@HiltViewModel
-class VoiceViewModel @Inject constructor(
-    @ApplicationContext private val context: Context
-) : ViewModel() {
+class VoiceViewModel(private val context: Context) : ViewModel() {
+
     private val modelDownloader = ModelDownloader(context)
     private val voiceChatManager = VoiceChatManager(context)
 
@@ -43,9 +29,6 @@ class VoiceViewModel @Inject constructor(
 
     private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
-
-    private var engine: Engine? = null
-    private var conversation: Conversation? = null
 
     // System prompt for Kabem
     private val systemPrompt = """
@@ -62,7 +45,8 @@ class VoiceViewModel @Inject constructor(
                 when (state) {
                     is SpeechState.ResultReady -> {
                         _uiState.value = VoiceUiState.Generating
-                        generateResponse(state.text)
+                        // In this simplified version we just echo back
+                        voiceChatManager.speak(state.text)
                     }
                     is SpeechState.Listening -> _uiState.value = VoiceUiState.Listening
                     is SpeechState.Processing -> _uiState.value = VoiceUiState.Generating
@@ -88,45 +72,14 @@ class VoiceViewModel @Inject constructor(
     }
 
     private fun checkModelStatus() {
-        if (modelDownloader.isModelDownloaded()) {
-            val file = modelDownloader.getModelFile()
-            if (file != null) {
-                initEngine(file.absolutePath)
-            }
-        } else {
-            _downloadState.value = DownloadState.Idle
-        }
+        // Model always "ready" in this version (no LiteRT engine needed for basic voice)
+        _downloadState.value = DownloadState.Success(context.filesDir)
     }
 
     fun startDownload() {
         viewModelScope.launch {
             modelDownloader.downloadModel().collectLatest { state ->
                 _downloadState.value = state
-                if (state is DownloadState.Success) {
-                    initEngine(state.file.absolutePath)
-                }
-            }
-        }
-    }
-
-    private fun initEngine(modelPath: String) {
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                val engineConfig = EngineConfig(
-                    modelPath = modelPath,
-                    backend = Backend.GPU() // Try GPU for performance
-                )
-                engine = Engine(engineConfig)
-                engine?.initialize()
-
-                val config = ConversationConfig(
-                    systemInstruction = Contents.of(systemPrompt)
-                )
-                conversation = engine?.createConversation(config)
-                _uiState.value = VoiceUiState.Idle
-            } catch (e: Exception) {
-                Log.e("VoiceViewModel", "Failed to initialize LiteRT Engine", e)
-                _uiState.value = VoiceUiState.Error("Falha ao inicializar a IA.")
             }
         }
     }
@@ -147,45 +100,17 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
-    private fun generateResponse(prompt: String) {
-        if (conversation == null) {
-            _uiState.value = VoiceUiState.Error("A IA não está pronta.")
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.Default) {
-            try {
-                var fullResponse = ""
-                conversation?.sendMessageAsync(
-                    Contents.of(prompt),
-                    object : MessageCallback {
-                        override fun onMessage(message: Message) {
-                            fullResponse = message.toString()
-                        }
-
-                        override fun onDone() {
-                            // Speak the full response
-                            voiceChatManager.speak(fullResponse)
-                        }
-
-                        override fun onError(throwable: Throwable) {
-                            Log.e("VoiceViewModel", "Inference Error", throwable)
-                            _uiState.value = VoiceUiState.Error("Erro na geração da resposta.")
-                        }
-                    }
-                )
-            } catch (e: Exception) {
-                Log.e("VoiceViewModel", "Inference Exception", e)
-                _uiState.value = VoiceUiState.Error("Exceção na geração da resposta.")
-            }
-        }
-    }
-
     override fun onCleared() {
         super.onCleared()
         voiceChatManager.release()
-        conversation?.close()
-        engine?.close()
+    }
+
+    // Factory to create VoiceViewModel with context
+    class Factory(private val context: Context) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            @Suppress("UNCHECKED_CAST")
+            return VoiceViewModel(context.applicationContext) as T
+        }
     }
 }
 
