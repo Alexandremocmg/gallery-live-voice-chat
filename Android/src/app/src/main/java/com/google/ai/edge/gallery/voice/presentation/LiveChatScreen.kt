@@ -108,6 +108,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val recognizedText by viewModel.recognizedText.collectAsState()
     val lastResponse by viewModel.lastResponse.collectAsState()
+    val responseProfile by viewModel.responseProfile.collectAsState()
 
     Column(
         modifier = Modifier
@@ -130,6 +131,23 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 MaterialTheme.colorScheme.primary
             else
                 MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        AssistChip(
+            onClick = {},
+            enabled = false,
+            label = { Text(responseProfile.label) },
+            leadingIcon = {
+                Text(
+                    text = when (responseProfile) {
+                        ResponseDepthProfile.FLASH -> "F"
+                        ResponseDepthProfile.DETAILED -> "D"
+                        ResponseDepthProfile.STEP_BY_STEP -> "P"
+                        ResponseDepthProfile.STRATEGIC -> "E"
+                    },
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
         )
 
         // Conversation panel

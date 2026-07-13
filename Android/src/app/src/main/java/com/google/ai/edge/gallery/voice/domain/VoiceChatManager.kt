@@ -12,11 +12,13 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 class VoiceChatManager(private val context: Context) : RecognitionListener, TextToSpeech.OnInitListener {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
+    private val pendingUtterances = AtomicInteger(0)
 
     private val _speechState = MutableStateFlow<SpeechState>(SpeechState.Idle)
     val speechState: StateFlow<SpeechState> = _speechState
@@ -55,16 +57,21 @@ class VoiceChatManager(private val context: Context) : RecognitionListener, Text
                 }
 
                 override fun onDone(utteranceId: String?) {
-                    _speechState.value = SpeechState.Idle
+                    if (pendingUtterances.decrementAndGet().coerceAtLeast(0) == 0) {
+                        pendingUtterances.set(0)
+                        _speechState.value = SpeechState.Idle
+                    }
                 }
 
                 @Deprecated("Deprecated in Java", ReplaceWith("onError(utteranceId, -1)"))
                 override fun onError(utteranceId: String?) {
+                    pendingUtterances.set(0)
                     _speechState.value = SpeechState.Idle
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     Log.e("VoiceChatManager", "TTS Error: $errorCode")
+                    pendingUtterances.set(0)
                     _speechState.value = SpeechState.Idle
                 }
             })
@@ -89,15 +96,21 @@ class VoiceChatManager(private val context: Context) : RecognitionListener, Text
         speechRecognizer?.stopListening()
     }
 
-    fun speak(text: String) {
+    fun speak(text: String, flushQueue: Boolean = true) {
         if (text.isNotBlank()) {
-            val utteranceId = hashCode().toString()
-            textToSpeech?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+            if (flushQueue) {
+                pendingUtterances.set(0)
+            }
+            val utteranceId = "${System.nanoTime()}"
+            pendingUtterances.incrementAndGet()
+            val queueMode = if (flushQueue) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+            textToSpeech?.speak(text, queueMode, null, utteranceId)
         }
     }
 
     fun stopSpeaking() {
         textToSpeech?.stop()
+        pendingUtterances.set(0)
         _speechState.value = SpeechState.Idle
     }
 
