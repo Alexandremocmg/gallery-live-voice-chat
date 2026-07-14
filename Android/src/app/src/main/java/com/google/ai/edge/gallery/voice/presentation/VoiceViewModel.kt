@@ -9,7 +9,9 @@ import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.data.BuiltInTaskId
 import com.google.ai.edge.gallery.data.Model
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
+import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
+import com.google.ai.edge.gallery.data.MAX_IMAGE_COUNT
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -46,8 +48,8 @@ class VoiceViewModel(
   private val _responseProfile = MutableStateFlow(ResponseDepthProfile.FLASH)
   val responseProfile: StateFlow<ResponseDepthProfile> = _responseProfile.asStateFlow()
 
-  private val _attachedImage = MutableStateFlow<Bitmap?>(null)
-  val attachedImage: StateFlow<Bitmap?> = _attachedImage.asStateFlow()
+  private val _attachedImages = MutableStateFlow<List<Bitmap>>(emptyList())
+  val attachedImages: StateFlow<List<Bitmap>> = _attachedImages.asStateFlow()
 
   private val _imageSupport = MutableStateFlow(false)
   val imageSupport: StateFlow<Boolean> = _imageSupport.asStateFlow()
@@ -159,6 +161,7 @@ class VoiceViewModel(
         try {
           model.runtimeHelper.resetConversation(
             model = model,
+            supportImage = _imageSupport.value,
             systemInstruction = Contents.of(systemPrompt),
           )
           Log.d("VoiceViewModel", "Conversation turns reset for model ${model.name}")
@@ -194,21 +197,26 @@ class VoiceViewModel(
   }
 
   fun attachImage(bitmap: Bitmap) {
-    if (_imageSupport.value) {
-      _attachedImage.value = bitmap
-    }
+    attachImages(listOf(bitmap))
+  }
+
+  fun attachImages(bitmaps: List<Bitmap>) {
+    if (!_imageSupport.value || bitmaps.isEmpty()) return
+
+    val maxImages = if (activeModel?.runtimeType == RuntimeType.AICORE) 1 else MAX_IMAGE_COUNT
+    _attachedImages.value = (_attachedImages.value + bitmaps).take(maxImages)
   }
 
   fun clearAttachedImage() {
-    _attachedImage.value = null
+    _attachedImages.value = emptyList()
   }
 
   private fun generateResponse(prompt: String) {
     val model = activeModel ?: return
-    val imageForTurn = _attachedImage.value
+    val imagesForTurn = _attachedImages.value
     val profile = determineResponseProfile(lastTurnContext, prompt)
     val imageInstruction =
-      if (imageForTurn != null) {
+      if (imagesForTurn.isNotEmpty()) {
         " O usuario anexou uma imagem. Use a imagem como contexto principal e descreva apenas o que for relevante para a pergunta."
       } else {
         ""
@@ -226,7 +234,7 @@ class VoiceViewModel(
         model.runtimeHelper.runInference(
           model = model,
           input = wrappedPrompt,
-          images = imageForTurn?.let { listOf(it) } ?: emptyList(),
+          images = imagesForTurn,
           resultListener = { partialResult, done, _ ->
             accumulatedText += partialResult
             pendingSpeechText += partialResult
@@ -250,7 +258,7 @@ class VoiceViewModel(
               }
 
           viewModelScope.launch(Dispatchers.Main) {
-            _attachedImage.value = null
+            _attachedImages.value = emptyList()
             _lastResponse.value = accumulatedText
                 lastTurnContext =
                   TurnContext(
@@ -268,7 +276,7 @@ class VoiceViewModel(
           onError = { error ->
             responseGenerationInProgress = false
             viewModelScope.launch(Dispatchers.Main) {
-              _attachedImage.value = null
+              _attachedImages.value = emptyList()
               _uiState.value = VoiceUiState.Error("Erro na geracao da resposta: $error")
             }
           },
@@ -278,7 +286,7 @@ class VoiceViewModel(
         responseGenerationInProgress = false
         Log.e("VoiceViewModel", "Failed to run local inference", e)
         withContext(Dispatchers.Main) {
-          _attachedImage.value = null
+          _attachedImages.value = emptyList()
           _uiState.value = VoiceUiState.Error("Excecao na inferencia: ${e.message}")
         }
       }

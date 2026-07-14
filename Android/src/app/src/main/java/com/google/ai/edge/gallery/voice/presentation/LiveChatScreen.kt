@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -26,9 +28,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -123,17 +127,18 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val recognizedText by viewModel.recognizedText.collectAsState()
     val lastResponse by viewModel.lastResponse.collectAsState()
     val responseProfile by viewModel.responseProfile.collectAsState()
-    val attachedImage by viewModel.attachedImage.collectAsState()
+    val attachedImages by viewModel.attachedImages.collectAsState()
     val imageSupport by viewModel.imageSupport.collectAsState()
 
     val pickImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
+        ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
             scope.launch(Dispatchers.IO) {
-                decodeSampledBitmapFromUri(context, uri, 1024, 1024)?.let { bitmap ->
-                    viewModel.attachImage(bitmap)
+                val bitmaps = uris.mapNotNull { uri ->
+                    decodeSampledBitmapFromUri(context, uri, 1024, 1024)
                 }
+                viewModel.attachImages(bitmaps)
             }
         }
     }
@@ -197,23 +202,34 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (attachedImage != null) {
-                Box(
+            if (attachedImages.isNotEmpty()) {
+                Row(
                     modifier = Modifier
-                        .size(128.dp)
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Image(
-                        bitmap = attachedImage!!.asImageBitmap(),
-                        contentDescription = "Imagem anexada",
-                        modifier = Modifier.fillMaxSize()
-                    )
-                    IconButton(
-                        onClick = viewModel::clearAttachedImage,
-                        modifier = Modifier.align(Alignment.TopEnd)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = "Remover imagem")
+                    attachedImages.forEachIndexed { index, bitmap ->
+                        Box(
+                            modifier = Modifier
+                                .size(116.dp)
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "Imagem anexada ${index + 1}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
+                }
+                TextButton(onClick = viewModel::clearAttachedImage) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Remover imagens")
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -268,26 +284,31 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             else
                 MaterialTheme.colorScheme.primary
 
-            Box(
-                modifier = Modifier
-                    .size(110.dp)
-                    .background(buttonColor, CircleShape)
-                    .clickable { viewModel.toggleListening() },
-                contentAlignment = Alignment.Center
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                Icon(
-                    imageVector = if (isActive) Icons.Default.Stop else Icons.Default.Mic,
-                    contentDescription = if (isActive) "Parar" else "Falar",
-                    modifier = Modifier.size(52.dp),
-                    tint = MaterialTheme.colorScheme.onPrimary
-                )
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .background(buttonColor, CircleShape)
+                        .clickable { viewModel.toggleListening() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isActive) Icons.Default.Stop else Icons.Default.Mic,
+                        contentDescription = if (isActive) "Parar" else "Falar",
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
             }
 
-            Row(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                IconButton(
+                Row(
+                    modifier = Modifier.padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                FilledTonalIconButton(
                     onClick = {
                         pickImage.launch(
                             androidx.activity.result.PickVisualMediaRequest(
@@ -296,10 +317,15 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         )
                     },
                     enabled = imageSupport && uiState is VoiceUiState.Idle,
+                    modifier = Modifier.size(56.dp),
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Escolher imagem")
+                    Icon(
+                        Icons.Default.PhotoLibrary,
+                        contentDescription = "Escolher imagens",
+                        modifier = Modifier.size(28.dp),
+                    )
                 }
-                IconButton(
+                FilledTonalIconButton(
                     onClick = {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                             PackageManager.PERMISSION_GRANTED
@@ -310,8 +336,13 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         }
                     },
                     enabled = imageSupport && uiState is VoiceUiState.Idle,
+                    modifier = Modifier.size(56.dp),
                 ) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = "Tirar foto")
+                    Icon(
+                        Icons.Default.PhotoCamera,
+                        contentDescription = "Tirar foto",
+                        modifier = Modifier.size(28.dp),
+                    )
                 }
             }
         }
