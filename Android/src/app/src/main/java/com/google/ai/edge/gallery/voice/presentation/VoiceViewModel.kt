@@ -1,5 +1,6 @@
 package com.google.ai.edge.gallery.voice.presentation
 
+import android.graphics.Bitmap
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -45,6 +46,12 @@ class VoiceViewModel(
   private val _responseProfile = MutableStateFlow(ResponseDepthProfile.FLASH)
   val responseProfile: StateFlow<ResponseDepthProfile> = _responseProfile.asStateFlow()
 
+  private val _attachedImage = MutableStateFlow<Bitmap?>(null)
+  val attachedImage: StateFlow<Bitmap?> = _attachedImage.asStateFlow()
+
+  private val _imageSupport = MutableStateFlow(false)
+  val imageSupport: StateFlow<Boolean> = _imageSupport.asStateFlow()
+
   private var activeModel: Model? = null
   private var activeTask: Task? = null
   private var isConversationReset = false
@@ -71,6 +78,7 @@ class VoiceViewModel(
                 ModelDownloadStatusType.SUCCEEDED
             }
           activeModel = downloaded
+          _imageSupport.value = downloaded?.llmSupportImage == true
 
           if (downloaded == null) {
             _uiState.value = VoiceUiState.NoModel
@@ -185,10 +193,27 @@ class VoiceViewModel(
     }
   }
 
+  fun attachImage(bitmap: Bitmap) {
+    if (_imageSupport.value) {
+      _attachedImage.value = bitmap
+    }
+  }
+
+  fun clearAttachedImage() {
+    _attachedImage.value = null
+  }
+
   private fun generateResponse(prompt: String) {
     val model = activeModel ?: return
+    val imageForTurn = _attachedImage.value
     val profile = determineResponseProfile(lastTurnContext, prompt)
-    val wrappedPrompt = buildPromptWithInternalInstruction(profile, prompt)
+    val imageInstruction =
+      if (imageForTurn != null) {
+        " O usuario anexou uma imagem. Use a imagem como contexto principal e descreva apenas o que for relevante para a pergunta."
+      } else {
+        ""
+      }
+    val wrappedPrompt = buildPromptWithInternalInstruction(profile, prompt) + imageInstruction
     var accumulatedText = ""
     var pendingSpeechText = ""
     var hasSpokenFirstSegment = false
@@ -201,6 +226,7 @@ class VoiceViewModel(
         model.runtimeHelper.runInference(
           model = model,
           input = wrappedPrompt,
+          images = imageForTurn?.let { listOf(it) } ?: emptyList(),
           resultListener = { partialResult, done, _ ->
             accumulatedText += partialResult
             pendingSpeechText += partialResult
@@ -223,8 +249,9 @@ class VoiceViewModel(
                 pendingSpeechText = ""
               }
 
-              viewModelScope.launch(Dispatchers.Main) {
-                _lastResponse.value = accumulatedText
+          viewModelScope.launch(Dispatchers.Main) {
+            _attachedImage.value = null
+            _lastResponse.value = accumulatedText
                 lastTurnContext =
                   TurnContext(
                     profile = profile,
@@ -241,6 +268,7 @@ class VoiceViewModel(
           onError = { error ->
             responseGenerationInProgress = false
             viewModelScope.launch(Dispatchers.Main) {
+              _attachedImage.value = null
               _uiState.value = VoiceUiState.Error("Erro na geracao da resposta: $error")
             }
           },
@@ -250,6 +278,7 @@ class VoiceViewModel(
         responseGenerationInProgress = false
         Log.e("VoiceViewModel", "Failed to run local inference", e)
         withContext(Dispatchers.Main) {
+          _attachedImage.value = null
           _uiState.value = VoiceUiState.Error("Excecao na inferencia: ${e.message}")
         }
       }

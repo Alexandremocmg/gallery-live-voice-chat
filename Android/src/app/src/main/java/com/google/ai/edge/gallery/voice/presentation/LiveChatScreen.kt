@@ -2,12 +2,16 @@ package com.google.ai.edge.gallery.voice.presentation
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -15,17 +19,25 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
+import com.google.ai.edge.gallery.common.decodeSampledBitmapFromUri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,10 +117,36 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
 
 @Composable
 fun LiveChatScreen(viewModel: VoiceViewModel) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val uiState by viewModel.uiState.collectAsState()
     val recognizedText by viewModel.recognizedText.collectAsState()
     val lastResponse by viewModel.lastResponse.collectAsState()
     val responseProfile by viewModel.responseProfile.collectAsState()
+    val attachedImage by viewModel.attachedImage.collectAsState()
+    val imageSupport by viewModel.imageSupport.collectAsState()
+
+    val pickImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                decodeSampledBitmapFromUri(context, uri, 1024, 1024)?.let { bitmap ->
+                    viewModel.attachImage(bitmap)
+                }
+            }
+        }
+    }
+    val takeImage = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        bitmap?.let(viewModel::attachImage)
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) takeImage.launch(null)
+    }
 
     Column(
         modifier = Modifier
@@ -159,6 +197,27 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (attachedImage != null) {
+                Box(
+                    modifier = Modifier
+                        .size(128.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                ) {
+                    Image(
+                        bitmap = attachedImage!!.asImageBitmap(),
+                        contentDescription = "Imagem anexada",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    IconButton(
+                        onClick = viewModel::clearAttachedImage,
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Remover imagem")
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             if (recognizedText.isNotBlank()) {
                 Text(
                     text = "Você disse:",
@@ -222,6 +281,38 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     modifier = Modifier.size(52.dp),
                     tint = MaterialTheme.colorScheme.onPrimary
                 )
+            }
+
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(
+                    onClick = {
+                        pickImage.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    },
+                    enabled = imageSupport && uiState is VoiceUiState.Idle,
+                ) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = "Escolher imagem")
+                }
+                IconButton(
+                    onClick = {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                            PackageManager.PERMISSION_GRANTED
+                        ) {
+                            takeImage.launch(null)
+                        } else {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
+                    enabled = imageSupport && uiState is VoiceUiState.Idle,
+                ) {
+                    Icon(Icons.Default.PhotoCamera, contentDescription = "Tirar foto")
+                }
             }
         }
     }
