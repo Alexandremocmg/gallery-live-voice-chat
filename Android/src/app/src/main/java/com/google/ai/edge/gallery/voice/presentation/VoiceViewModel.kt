@@ -2,6 +2,7 @@ package com.google.ai.edge.gallery.voice.presentation
 
 import android.graphics.Bitmap
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -17,6 +18,8 @@ import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.voice.domain.SpeechState
 import com.google.ai.edge.gallery.voice.domain.VoiceChatManager
+import com.google.ai.edge.gallery.voice.data.PdfStudyDocument
+import com.google.ai.edge.gallery.voice.data.PdfStudyDocumentReader
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ExperimentalApi
 import java.text.Normalizer
@@ -53,6 +56,15 @@ class VoiceViewModel(
 
   private val _imageSupport = MutableStateFlow(false)
   val imageSupport: StateFlow<Boolean> = _imageSupport.asStateFlow()
+
+  private val _pdfDocument = MutableStateFlow<PdfStudyDocument?>(null)
+  val pdfDocument: StateFlow<PdfStudyDocument?> = _pdfDocument.asStateFlow()
+
+  private val _pdfLoading = MutableStateFlow(false)
+  val pdfLoading: StateFlow<Boolean> = _pdfLoading.asStateFlow()
+
+  private val _pdfError = MutableStateFlow<String?>(null)
+  val pdfError: StateFlow<String?> = _pdfError.asStateFlow()
 
   private var activeModel: Model? = null
   private var activeTask: Task? = null
@@ -211,9 +223,31 @@ class VoiceViewModel(
     _attachedImages.value = emptyList()
   }
 
+  fun loadPdf(uri: Uri, displayName: String) {
+    viewModelScope.launch {
+      _pdfLoading.value = true
+      _pdfError.value = null
+      try {
+        _pdfDocument.value = PdfStudyDocumentReader.read(context, uri, displayName)
+      } catch (e: Exception) {
+        Log.e("VoiceViewModel", "Failed to read PDF", e)
+        _pdfDocument.value = null
+        _pdfError.value = e.message ?: "Nao foi possivel ler o PDF."
+      } finally {
+        _pdfLoading.value = false
+      }
+    }
+  }
+
+  fun clearPdf() {
+    _pdfDocument.value = null
+    _pdfError.value = null
+  }
+
   private fun generateResponse(prompt: String) {
     val model = activeModel ?: return
     val imagesForTurn = _attachedImages.value
+    val pdfContext = _pdfDocument.value?.relevantContext(prompt)
     val profile = determineResponseProfile(lastTurnContext, prompt)
     val imageInstruction =
       if (imagesForTurn.isNotEmpty()) {
@@ -221,7 +255,13 @@ class VoiceViewModel(
       } else {
         ""
       }
-    val wrappedPrompt = buildPromptWithInternalInstruction(profile, prompt) + imageInstruction
+    val pdfInstruction =
+      if (!pdfContext.isNullOrBlank()) {
+        "\n\n[CONTEXTO DO PDF ATIVO:\n$pdfContext\nResponda usando esse contexto. Cite a pagina quando for relevante.]"
+      } else {
+        ""
+      }
+    val wrappedPrompt = buildPromptWithInternalInstruction(profile, prompt) + imageInstruction + pdfInstruction
     var accumulatedText = ""
     var pendingSpeechText = ""
     var hasSpokenFirstSegment = false

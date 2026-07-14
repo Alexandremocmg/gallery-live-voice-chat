@@ -124,6 +124,7 @@ dependencies {
   implementation(libs.mcp.kotlin.sdk)
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
+  implementation(libs.pdfbox.android)
 }
 
 protobuf {

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,6 +130,9 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val responseProfile by viewModel.responseProfile.collectAsState()
     val attachedImages by viewModel.attachedImages.collectAsState()
     val imageSupport by viewModel.imageSupport.collectAsState()
+    val pdfDocument by viewModel.pdfDocument.collectAsState()
+    val pdfLoading by viewModel.pdfLoading.collectAsState()
+    val pdfError by viewModel.pdfError.collectAsState()
 
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
@@ -151,6 +155,13 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) takeImage.launch(null)
+    }
+    val pickPdf = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.loadPdf(uri, uri.lastPathSegment?.substringAfterLast('/') ?: "Documento PDF")
+        }
     }
 
     Column(
@@ -192,6 +203,59 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 )
             }
         )
+
+        if (pdfDocument != null || pdfLoading || pdfError != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = when {
+                                pdfLoading -> "Lendo PDF..."
+                                pdfDocument != null -> pdfDocument!!.displayName
+                                else -> "Falha ao ler PDF"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                        )
+                        if (pdfDocument != null) {
+                            Text(
+                                text = "${pdfDocument!!.pageCount} paginas disponiveis para estudo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (pdfError != null) {
+                            Text(
+                                text = pdfError!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    IconButton(onClick = viewModel::clearPdf, enabled = !pdfLoading) {
+                        Icon(Icons.Default.Close, contentDescription = "Remover PDF")
+                    }
+                }
+            }
+        } else {
+            OutlinedButton(
+                onClick = { pickPdf.launch(arrayOf("application/pdf")) },
+                enabled = !pdfLoading,
+            ) {
+                Icon(Icons.Default.PictureAsPdf, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Abrir PDF para estudar")
+            }
+        }
 
         // Conversation panel
         Column(
@@ -302,8 +366,6 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
                 }
-            }
-
                 Row(
                     modifier = Modifier.padding(top = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
@@ -347,6 +409,8 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             }
         }
     }
+}
+
 }
 
 @Composable
