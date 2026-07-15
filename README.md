@@ -40,7 +40,7 @@ For users without Google Play access, install the apk from the [**latest release
 
 * **Audio Scribe**: Transcribe and translate voice recordings into text in real-time using high-efficiency on-device language models.
 
-*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Features include multimodal support (camera/gallery), PDF study mode (chat with your documents via voice), advanced TTS configuration (Google Speech Services prioritization, offline mode), and persistent offline sessions.
+*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Features include multimodal support (camera/gallery), PDF study mode (chat with your documents via voice), advanced TTS configuration (Google Speech Services prioritization, offline mode), persistent offline sessions, and **Personal Memory** (saves user preferences and structured memories locally).
 
 *   **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
 

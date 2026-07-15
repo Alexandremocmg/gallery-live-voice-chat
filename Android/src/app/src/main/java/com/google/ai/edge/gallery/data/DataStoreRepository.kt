@@ -21,6 +21,8 @@ import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.BenchmarkResult
 import com.google.ai.edge.gallery.proto.BenchmarkResults
 import com.google.ai.edge.gallery.proto.ChatSessionProto
+import com.google.ai.edge.gallery.proto.MemoryProto
+import com.google.ai.edge.gallery.proto.MemoryStatusProto
 import com.google.ai.edge.gallery.proto.Cutout
 import com.google.ai.edge.gallery.proto.CutoutCollection
 import com.google.ai.edge.gallery.proto.ImportedModel
@@ -74,6 +76,18 @@ interface DataStoreRepository {
   fun saveVoiceSession(session: ChatSessionProto)
 
   fun deleteVoiceSession(sessionId: String)
+
+  fun readMemories(): List<MemoryProto>
+
+  fun saveMemory(memory: MemoryProto)
+
+  fun deleteMemory(memoryId: String)
+
+  fun clearMemories()
+
+  fun readMemoryEnabled(): Boolean
+
+  fun saveMemoryEnabled(enabled: Boolean)
 
   fun saveSecret(key: String, value: String)
 
@@ -247,6 +261,59 @@ class DefaultDataStoreRepository(
           it.sessionId == sessionId && (it.isVoiceSession || it.taskId == VOICE_SESSION_TASK_ID)
         }
         userData.toBuilder().clearChatSessions().addAllChatSessions(sessions).build()
+      }
+    }
+  }
+
+  override fun readMemories(): List<MemoryProto> {
+    return runBlocking {
+      userDataDataStore.data.first().memoriesList
+        .filter { it.status == MemoryStatusProto.MEMORY_STATUS_CONFIRMED }
+        .sortedByDescending { it.updatedAtMs }
+    }
+  }
+
+  override fun saveMemory(memory: MemoryProto) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        val memories = userData.memoriesList
+          .filterNot { it.id == memory.id }
+          .toMutableList()
+        memories.add(memory)
+        userData.toBuilder().clearMemories().addAllMemories(memories).build()
+      }
+    }
+  }
+
+  override fun deleteMemory(memoryId: String) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        val memories = userData.memoriesList.filterNot { it.id == memoryId }
+        userData.toBuilder().clearMemories().addAllMemories(memories).build()
+      }
+    }
+  }
+
+  override fun clearMemories() {
+    runBlocking {
+      userDataDataStore.updateData { userData -> userData.toBuilder().clearMemories().build() }
+    }
+  }
+
+  override fun readMemoryEnabled(): Boolean {
+    return runBlocking {
+      val userData = userDataDataStore.data.first()
+      if (userData.memoryEnabledConfigured) userData.memoryEnabled else true
+    }
+  }
+
+  override fun saveMemoryEnabled(enabled: Boolean) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        userData.toBuilder()
+          .setMemoryEnabled(enabled)
+          .setMemoryEnabledConfigured(true)
+          .build()
       }
     }
   }

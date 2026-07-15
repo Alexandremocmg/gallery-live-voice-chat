@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
@@ -45,6 +46,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.common.decodeSampledBitmapFromUri
+import com.google.ai.edge.gallery.voice.data.MemoryCandidate
+import com.google.ai.edge.gallery.voice.data.MemoryCategory
+import com.google.ai.edge.gallery.voice.data.MemoryItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -57,6 +61,7 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
         factory = VoiceViewModel.Factory(context, modelManagerViewModel)
     )
     var showSessions by remember { mutableStateOf(false) }
+    var showMemory by remember { mutableStateOf(false) }
 
     // Request RECORD_AUDIO permission on entry
     var hasMicPermission by remember {
@@ -103,6 +108,9 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
                     IconButton(onClick = { showSessions = true }) {
                         Icon(Icons.Default.History, contentDescription = "Abrir sessoes")
                     }
+                    IconButton(onClick = { showMemory = true }) {
+                        Icon(Icons.Default.Bookmark, contentDescription = "Minha memoria")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -143,6 +151,12 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
                     onDismiss = { showSessions = false },
                 )
             }
+            if (showMemory) {
+                MemorySheet(
+                    viewModel = viewModel,
+                    onDismiss = { showMemory = false },
+                )
+            }
         }
     }
 }
@@ -160,6 +174,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val pdfDocument by viewModel.pdfDocument.collectAsState()
     val pdfLoading by viewModel.pdfLoading.collectAsState()
     val pdfError by viewModel.pdfError.collectAsState()
+    val pendingMemory by viewModel.pendingMemory.collectAsState()
 
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
@@ -363,6 +378,15 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
+
+            pendingMemory?.let { candidate ->
+                Spacer(modifier = Modifier.height(20.dp))
+                MemoryConfirmationCard(
+                    candidate = candidate,
+                    onConfirm = viewModel::confirmPendingMemory,
+                    onReject = viewModel::rejectPendingMemory,
+                )
+            }
         }
 
         // Bottom control section with waveform pulse and mic button
@@ -446,6 +470,159 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     }
 }
 
+}
+
+@Composable
+private fun MemoryConfirmationCard(
+    candidate: MemoryCandidate,
+    onConfirm: () -> Unit,
+    onReject: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Guardar na memoria?", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "${candidate.category.label}: ${candidate.value}",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onConfirm) { Text("Guardar") }
+                TextButton(onClick = onReject) { Text("Nao guardar") }
+            }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun MemorySheet(viewModel: VoiceViewModel, onDismiss: () -> Unit) {
+    val memories by viewModel.memories.collectAsState()
+    val memoryEnabled by viewModel.memoryEnabled.collectAsState()
+    var editingMemory by remember { mutableStateOf<MemoryItem?>(null) }
+    var editText by remember { mutableStateOf("") }
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Minha memoria", style = MaterialTheme.typography.titleLarge)
+                Switch(
+                    checked = memoryEnabled,
+                    onCheckedChange = viewModel::setMemoryEnabled,
+                )
+            }
+            Text(
+                text = if (memoryEnabled) "Memorias confirmadas ficam somente neste celular."
+                else "A memoria esta desativada.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = { showClearDialog = true }, enabled = memories.isNotEmpty()) {
+                Icon(Icons.Default.Delete, contentDescription = null)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Apagar tudo")
+            }
+            if (memories.isEmpty()) {
+                Text(
+                    "Nenhuma memoria confirmada ainda.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                memories.groupBy { it.category }.forEach { (category, categoryMemories) ->
+                    Text(
+                        text = category.label,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+                    )
+                    categoryMemories.forEach { memory ->
+                        ListItem(
+                            headlineContent = { Text(memory.value, maxLines = 3) },
+                            supportingContent = {
+                                if (memory.sensitive) Text("Informacao sensivel")
+                            },
+                            trailingContent = {
+                                Row {
+                                    IconButton(
+                                        onClick = {
+                                            editingMemory = memory
+                                            editText = memory.value
+                                        },
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Editar memoria")
+                                    }
+                                    IconButton(onClick = { viewModel.deleteMemory(memory.id) }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Excluir memoria")
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+
+    editingMemory?.let { memory ->
+        AlertDialog(
+            onDismissRequest = { editingMemory = null },
+            title = { Text("Editar memoria") },
+            text = {
+                TextField(
+                    value = editText,
+                    onValueChange = { editText = it },
+                    singleLine = false,
+                    label = { Text(memory.category.label) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateMemory(memory.id, editText)
+                        editingMemory = null
+                    },
+                ) { Text("Salvar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingMemory = null }) { Text("Cancelar") }
+            },
+        )
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Apagar toda a memoria?") },
+            text = { Text("Essa acao nao pode ser desfeita.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearMemories()
+                        showClearDialog = false
+                    },
+                ) { Text("Apagar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) { Text("Cancelar") }
+            },
+        )
+    }
 }
 
 @Composable

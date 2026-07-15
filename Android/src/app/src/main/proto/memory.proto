@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package com.google.ai.edge.gallery.proto;
+
+option java_package = "com.google.ai.edge.gallery.proto";
+option java_multiple_files = true;
+
+enum MemoryCategoryProto {
+  MEMORY_CATEGORY_UNSPECIFIED = 0;
+  MEMORY_CATEGORY_USER_FACT = 1;
+  MEMORY_CATEGORY_PREFERENCE = 2;
+  MEMORY_CATEGORY_PROJECT = 3;
+  MEMORY_CATEGORY_STUDY = 4;
+  MEMORY_CATEGORY_PERSON = 5;
+}
+
+enum MemoryStatusProto {
+  MEMORY_STATUS_UNSPECIFIED = 0;
+  MEMORY_STATUS_CANDIDATE = 1;
+  MEMORY_STATUS_CONFIRMED = 2;
+  MEMORY_STATUS_REJECTED = 3;
+}
+
+message MemoryProto {
+  string id = 1;
+  MemoryCategoryProto category = 2;
+  string key = 3;
+  string value = 4;
+  MemoryStatusProto status = 5;
+  float confidence = 6;
+  string source_session_id = 7;
+  string source_message_id = 8;
+  string evidence = 9;
+  int64 created_at_ms = 10;
+  int64 updated_at_ms = 11;
+  int64 expires_at_ms = 12;
+  bool sensitive = 13;
+}

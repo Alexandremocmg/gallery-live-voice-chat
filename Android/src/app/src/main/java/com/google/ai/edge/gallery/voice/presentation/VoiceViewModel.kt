@@ -18,6 +18,9 @@ import com.google.ai.edge.gallery.data.VOICE_SESSION_TASK_ID
 import com.google.ai.edge.gallery.proto.ChatMessageProto
 import com.google.ai.edge.gallery.proto.ChatSessionProto
 import com.google.ai.edge.gallery.proto.ChatSideProto
+import com.google.ai.edge.gallery.proto.MemoryCategoryProto
+import com.google.ai.edge.gallery.proto.MemoryProto
+import com.google.ai.edge.gallery.proto.MemoryStatusProto
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -25,6 +28,10 @@ import com.google.ai.edge.gallery.voice.domain.SpeechState
 import com.google.ai.edge.gallery.voice.domain.VoiceChatManager
 import com.google.ai.edge.gallery.voice.data.PdfStudyDocument
 import com.google.ai.edge.gallery.voice.data.PdfStudyDocumentReader
+import com.google.ai.edge.gallery.voice.data.MemoryCandidate
+import com.google.ai.edge.gallery.voice.data.MemoryCategory
+import com.google.ai.edge.gallery.voice.data.MemoryItem
+import com.google.ai.edge.gallery.voice.data.MemoryStatus
 import com.google.ai.edge.gallery.voice.data.VoiceSessionSummary
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ExperimentalApi
@@ -88,6 +95,15 @@ class VoiceViewModel(
   private val _activeSessionTitle = MutableStateFlow("Nova sessao")
   val activeSessionTitle: StateFlow<String> = _activeSessionTitle.asStateFlow()
 
+  private val _memories = MutableStateFlow<List<MemoryItem>>(emptyList())
+  val memories: StateFlow<List<MemoryItem>> = _memories.asStateFlow()
+
+  private val _pendingMemory = MutableStateFlow<MemoryCandidate?>(null)
+  val pendingMemory: StateFlow<MemoryCandidate?> = _pendingMemory.asStateFlow()
+
+  private val _memoryEnabled = MutableStateFlow(modelManagerViewModel.dataStoreRepository.readMemoryEnabled())
+  val memoryEnabled: StateFlow<Boolean> = _memoryEnabled.asStateFlow()
+
   private var activeModel: Model? = null
   private var activeTask: Task? = null
   private var isConversationReset = false
@@ -109,6 +125,7 @@ class VoiceViewModel(
 
   init {
     refreshSessionsAndRestoreLatest()
+    refreshMemories()
 
     viewModelScope.launch {
       modelManagerViewModel.uiState.collectLatest { managerState ->
@@ -311,6 +328,79 @@ class VoiceViewModel(
     }
   }
 
+  fun confirmPendingMemory() {
+    val candidate = _pendingMemory.value ?: return
+    if (!_memoryEnabled.value) {
+      _pendingMemory.value = null
+      return
+    }
+    val now = System.currentTimeMillis()
+    val memory = MemoryProto.newBuilder()
+      .setId(UUID.randomUUID().toString())
+      .setCategory(candidate.category.toProto())
+      .setKey(candidate.key)
+      .setValue(candidate.value)
+      .setStatus(MemoryStatusProto.MEMORY_STATUS_CONFIRMED)
+      .setConfidence(candidate.confidence)
+      .setSourceSessionId(_activeSessionId.value.orEmpty())
+      .setSourceMessageId(UUID.randomUUID().toString())
+      .setEvidence(candidate.value.take(300))
+      .setCreatedAtMs(now)
+      .setUpdatedAtMs(now)
+      .setSensitive(candidate.sensitive)
+      .build()
+    _pendingMemory.value = null
+    viewModelScope.launch(Dispatchers.IO) {
+      modelManagerViewModel.dataStoreRepository.saveMemory(memory)
+      refreshMemories()
+    }
+  }
+
+  fun rejectPendingMemory() {
+    _pendingMemory.value = null
+  }
+
+  fun deleteMemory(memoryId: String) {
+    viewModelScope.launch(Dispatchers.IO) {
+      modelManagerViewModel.dataStoreRepository.deleteMemory(memoryId)
+      withContext(Dispatchers.Main) {
+        _memories.value = _memories.value.filterNot { it.id == memoryId }
+      }
+    }
+  }
+
+  fun updateMemory(memoryId: String, value: String) {
+    val cleanValue = value.trim().take(500)
+    if (cleanValue.isBlank()) return
+    viewModelScope.launch(Dispatchers.IO) {
+      val current = modelManagerViewModel.dataStoreRepository.readMemories()
+        .firstOrNull { it.id == memoryId } ?: return@launch
+      modelManagerViewModel.dataStoreRepository.saveMemory(
+        current.toBuilder()
+          .setValue(cleanValue)
+          .setEvidence(cleanValue.take(300))
+          .setUpdatedAtMs(System.currentTimeMillis())
+          .build()
+      )
+      refreshMemories()
+    }
+  }
+
+  fun clearMemories() {
+    viewModelScope.launch(Dispatchers.IO) {
+      modelManagerViewModel.dataStoreRepository.clearMemories()
+      withContext(Dispatchers.Main) { _memories.value = emptyList() }
+    }
+  }
+
+  fun setMemoryEnabled(enabled: Boolean) {
+    _memoryEnabled.value = enabled
+    if (!enabled) _pendingMemory.value = null
+    viewModelScope.launch(Dispatchers.IO) {
+      modelManagerViewModel.dataStoreRepository.saveMemoryEnabled(enabled)
+    }
+  }
+
   fun loadPdf(uri: Uri, displayName: String) {
     viewModelScope.launch {
       _pdfLoading.value = true
@@ -345,6 +435,9 @@ class VoiceViewModel(
     val pdfPageNumbers = _pdfDocument.value?.relevantPageNumbers(prompt).orEmpty()
     val profile = determineResponseProfile(lastTurnContext, prompt)
     val previousSessionContext = buildSessionContext()
+    val memoryContext = buildMemoryContext(prompt)
+    val detectedMemoryCandidate =
+      if (_memoryEnabled.value) detectMemoryCandidate(prompt) else null
     recordUserMessage(prompt, profile, pdfPageNumbers)
     val imageInstruction =
       if (imagesForTurn.isNotEmpty()) {
@@ -360,7 +453,7 @@ class VoiceViewModel(
       }
     val wrappedPrompt =
       buildPromptWithInternalInstruction(profile, prompt, previousSessionContext) +
-        imageInstruction + pdfInstruction
+        imageInstruction + pdfInstruction + memoryContext
     var accumulatedText = ""
     var pendingSpeechText = ""
     var hasSpokenFirstSegment = false
@@ -405,6 +498,7 @@ class VoiceViewModel(
                     assistantSummary = summarizeForTurnContext(accumulatedText),
                   )
                 recordAssistantMessage(accumulatedText, profile, pdfPageNumbers)
+                _pendingMemory.value = detectedMemoryCandidate
                 if (!hasSpokenFirstSegment && accumulatedText.isNotBlank()) {
                   _uiState.value = VoiceUiState.Speaking
                   voiceChatManager.speak(accumulatedText)
@@ -533,6 +627,80 @@ class VoiceViewModel(
 
   private fun summarizeForTurnContext(text: String): String {
     return text.replace(Regex("\\s+"), " ").trim().take(180)
+  }
+
+  private fun refreshMemories() {
+    viewModelScope.launch(Dispatchers.IO) {
+      val savedMemories = modelManagerViewModel.dataStoreRepository.readMemories()
+      withContext(Dispatchers.Main) {
+        _memories.value = savedMemories.map(::toMemoryItem)
+      }
+    }
+  }
+
+  private fun buildMemoryContext(query: String): String {
+    if (!_memoryEnabled.value || _memories.value.isEmpty()) return ""
+    val terms = normalizeForMatching(query)
+      .split(Regex("[^a-z0-9]+"))
+      .filter { it.length >= 3 }
+      .distinct()
+    if (terms.isEmpty()) return ""
+
+    val relevant = _memories.value
+      .map { memory ->
+        val searchable = normalizeForMatching("${memory.key} ${memory.value}")
+        memory to terms.count { searchable.contains(it) }
+      }
+      .filter { it.second > 0 }
+      .sortedWith(compareByDescending<Pair<MemoryItem, Int>> { it.second }.thenByDescending { it.first.confidence })
+      .take(5)
+
+    if (relevant.isEmpty()) return ""
+    return "\n\n[MEMORIAS CONFIRMADAS RELEVANTES:\n" +
+      relevant.joinToString("\n") { (memory, _) ->
+        "- ${memory.category.label}: ${memory.value}"
+      } +
+      "\nUse somente como contexto. Se houver conflito com a fala atual, pergunte ao usuario. ]"
+  }
+
+  private fun detectMemoryCandidate(prompt: String): MemoryCandidate? {
+    val normalized = normalizeForMatching(prompt)
+    val explicitBody = EXPLICIT_MEMORY_PATTERN.find(normalized)?.groupValues?.getOrNull(1)
+    val strongPrefix = MEMORY_PREFIXES.firstOrNull { normalized.startsWith(it) }
+    val body = explicitBody ?: if (strongPrefix != null) normalized else return null
+    val cleanBody = body.trim().trim('.', '!', '?', ':')
+    if (cleanBody.length < 5 || cleanBody.length > 240) return null
+
+    val category = when {
+      PERSON_MEMORY_PATTERN.containsMatchIn(cleanBody) -> MemoryCategory.PERSON
+      STUDY_MEMORY_PATTERN.containsMatchIn(cleanBody) -> MemoryCategory.STUDY
+      PROJECT_MEMORY_PATTERN.containsMatchIn(cleanBody) -> MemoryCategory.PROJECT
+      PREFERENCE_MEMORY_PATTERN.containsMatchIn(cleanBody) -> MemoryCategory.PREFERENCE
+      else -> MemoryCategory.USER_FACT
+    }
+    val sensitive = category == MemoryCategory.PERSON ||
+      SENSITIVE_MEMORY_PATTERN.containsMatchIn(cleanBody)
+    return MemoryCandidate(
+      category = category,
+      key = category.label,
+      value = cleanBody.replaceFirstChar { it.uppercase() },
+      confidence = if (explicitBody != null) 0.95f else 0.8f,
+      sensitive = sensitive,
+    )
+  }
+
+  private fun toMemoryItem(memory: MemoryProto): MemoryItem {
+    return MemoryItem(
+      id = memory.id,
+      category = memory.category.toDomainCategory(),
+      key = memory.key,
+      value = memory.value,
+      status = memory.status.toDomainStatus(),
+      confidence = memory.confidence,
+      sourceSessionId = memory.sourceSessionId,
+      evidence = memory.evidence,
+      sensitive = memory.sensitive,
+    )
   }
 
   private fun refreshSessionsAndRestoreLatest() {
@@ -778,3 +946,57 @@ private val CONTINUATION_PATTERNS =
 private const val MAX_SAVED_SESSION_MESSAGES = 100
 private const val MAX_SAVED_MESSAGE_LENGTH = 6000
 private const val MAX_SESSION_CONTEXT_LENGTH = 2600
+
+private val EXPLICIT_MEMORY_PATTERN =
+  Regex("^\\s*(?:lembre|guarde|anote|salve|memorize)(?:\\s+que)?\\s+(.+?)\\s*[.!?]*\\s*$")
+
+private val MEMORY_PREFIXES = listOf(
+  "meu nome e",
+  "eu prefiro",
+  "gosto de",
+  "nao gosto de",
+  "moro em",
+  "sou ",
+  "estou estudando",
+  "estou trabalhando em",
+  "estou planejando",
+)
+
+private val PREFERENCE_MEMORY_PATTERN =
+  Regex("\\b(prefiro|gosto|nao gosto|resposta curta|resposta longa)\\b")
+private val PROJECT_MEMORY_PATTERN =
+  Regex("\\b(projeto|planejando|trabalhando em|empresa|aplicativo|app)\\b")
+private val STUDY_MEMORY_PATTERN =
+  Regex("\\b(estudando|estudo|prova|curso|materia|pdf|aprender)\\b")
+private val PERSON_MEMORY_PATTERN =
+  Regex("\\b(e meu|e minha|meu chefe|minha chefe|meu amigo|minha amiga|minha mae|meu pai)\\b")
+private val SENSITIVE_MEMORY_PATTERN =
+  Regex("\\b(nome|moro|endereco|telefone|cpf|senha|filho|filha|saude)\\b")
+
+private fun MemoryCategory.toProto(): MemoryCategoryProto {
+  return when (this) {
+    MemoryCategory.USER_FACT -> MemoryCategoryProto.MEMORY_CATEGORY_USER_FACT
+    MemoryCategory.PREFERENCE -> MemoryCategoryProto.MEMORY_CATEGORY_PREFERENCE
+    MemoryCategory.PROJECT -> MemoryCategoryProto.MEMORY_CATEGORY_PROJECT
+    MemoryCategory.STUDY -> MemoryCategoryProto.MEMORY_CATEGORY_STUDY
+    MemoryCategory.PERSON -> MemoryCategoryProto.MEMORY_CATEGORY_PERSON
+  }
+}
+
+private fun MemoryCategoryProto.toDomainCategory(): MemoryCategory {
+  return when (this) {
+    MemoryCategoryProto.MEMORY_CATEGORY_PREFERENCE -> MemoryCategory.PREFERENCE
+    MemoryCategoryProto.MEMORY_CATEGORY_PROJECT -> MemoryCategory.PROJECT
+    MemoryCategoryProto.MEMORY_CATEGORY_STUDY -> MemoryCategory.STUDY
+    MemoryCategoryProto.MEMORY_CATEGORY_PERSON -> MemoryCategory.PERSON
+    else -> MemoryCategory.USER_FACT
+  }
+}
+
+private fun MemoryStatusProto.toDomainStatus(): MemoryStatus {
+  return when (this) {
+    MemoryStatusProto.MEMORY_STATUS_CANDIDATE -> MemoryStatus.CANDIDATE
+    MemoryStatusProto.MEMORY_STATUS_REJECTED -> MemoryStatus.REJECTED
+    else -> MemoryStatus.CONFIRMED
+  }
+}
