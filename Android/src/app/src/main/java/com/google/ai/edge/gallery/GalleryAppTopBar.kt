@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -35,12 +36,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,10 +68,10 @@ fun GalleryTopAppBar(
         ) {
           if (title == stringResource(R.string.app_name)) {
             Icon(
-              painterResource(R.drawable.logo),
+              imageVector = Icons.Filled.Mic,
               modifier = Modifier.size(20.dp),
-              contentDescription = null,
-              tint = Color.Unspecified,
+              contentDescription = "Kabem Voice",
+              tint = MaterialTheme.colorScheme.primary,
             )
           }
           BasicText(
@@ -94,6 +94,11 @@ fun GalleryTopAppBar(
     },
     modifier = modifier,
     scrollBehavior = scrollBehavior,
+    colors =
+      TopAppBarDefaults.centerAlignedTopAppBarColors(
+        containerColor = MaterialTheme.colorScheme.surface,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+      ),
     // The button at the left.
     navigationIcon = {
       when (leftAction?.actionType) {

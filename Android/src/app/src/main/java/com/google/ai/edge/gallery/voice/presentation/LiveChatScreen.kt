@@ -409,7 +409,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Box(
                     modifier = Modifier
@@ -426,44 +426,45 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     )
                 }
                 Row(
-                    modifier = Modifier.padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                FilledTonalIconButton(
-                    onClick = {
-                        pickImage.launch(
-                            androidx.activity.result.PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                    FilledTonalIconButton(
+                        onClick = {
+                            pickImage.launch(
+                                androidx.activity.result.PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                                )
                             )
+                        },
+                        enabled = imageSupport && uiState is VoiceUiState.Idle,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            contentDescription = "Escolher imagens",
+                            modifier = Modifier.size(28.dp),
                         )
-                    },
-                    enabled = imageSupport && uiState is VoiceUiState.Idle,
-                    modifier = Modifier.size(56.dp),
-                ) {
-                    Icon(
-                        Icons.Default.PhotoLibrary,
-                        contentDescription = "Escolher imagens",
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-                FilledTonalIconButton(
-                    onClick = {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                            PackageManager.PERMISSION_GRANTED
-                        ) {
-                            takeImage.launch(null)
-                        } else {
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        }
-                    },
-                    enabled = imageSupport && uiState is VoiceUiState.Idle,
-                    modifier = Modifier.size(56.dp),
-                ) {
-                    Icon(
-                        Icons.Default.PhotoCamera,
-                        contentDescription = "Tirar foto",
-                        modifier = Modifier.size(28.dp),
-                    )
+                    }
+                    FilledTonalIconButton(
+                        onClick = {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                                PackageManager.PERMISSION_GRANTED
+                            ) {
+                                takeImage.launch(null)
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        enabled = imageSupport && uiState is VoiceUiState.Idle,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            contentDescription = "Tirar foto",
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
                 }
             }
         }

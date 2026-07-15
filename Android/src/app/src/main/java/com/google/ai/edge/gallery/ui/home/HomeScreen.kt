@@ -96,14 +96,11 @@ import androidx.compose.ui.graphics.Brush.Companion.linearGradient
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -374,7 +371,7 @@ fun HomeScreen(
             androidx.compose.material3.ExtendedFloatingActionButton(
               onClick = { onLiveVoiceClicked() },
               icon = { Icon(Icons.Default.Mic, "Live Voice") },
-              text = { Text("Live Voice") },
+              text = { Text("Falar agora") },
               containerColor = MaterialTheme.colorScheme.primaryContainer,
               contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
@@ -567,14 +564,12 @@ private fun AppTitle(enableAnimation: Boolean) {
   val firstLineText = stringResource(R.string.app_name_first_part)
   val secondLineText = stringResource(R.string.app_name_second_part)
   val titleColor = MaterialTheme.customColors.appTitleGradientColors[1]
-  val screenWidthInDp = LocalConfiguration.current.screenWidthDp.dp
-  val fontSize = with(LocalDensity.current) { (screenWidthInDp.toPx() * 0.12f).toSp() }
-  val titleStyle = homePageTitleStyle.copy(fontSize = fontSize, lineHeight = fontSize)
+  val titleStyle = homePageTitleStyle
 
-  // First line text "Google AI" and its animation.
+  // First line text "Kabem" and its animation.
   //
   // The animation starts with the first line of text swiping in from left to right, progressively
-  // revealing itself in the title color (blue). Then, after a brief delay, the exact same text, but
+  // revealing itself in the title color. Then, after a brief delay, the exact same text, but
   // in the onSurface color (which is black in light mode), begins its own left-to-right swiping
   // animation. This second animation is positioned directly on top of the first, appearing just as
   // the initial reveal is finishing or has just completed, creating a layered and dynamic visual
@@ -599,7 +594,7 @@ private fun AppTitle(enableAnimation: Boolean) {
       animationDurationMs = if (enableAnimation) TITLE_FIRST_LINE_ANIMATION_DURATION else 0,
     )
   }
-  // Second line text "Edge Gallery" and its animation.
+  // Second line text "Voice" and its animation.
   //
   // The initial animation is the same as the first line text. Right before it is done, the final
   // text with a gradient is revealed.
@@ -640,8 +635,8 @@ private fun AppTitle(enableAnimation: Boolean) {
 
 @Composable
 fun AppTitleGm4(enableAnimation: Boolean) {
-  val text1 = "Google"
-  val text2 = "AI Edge Gallery"
+  val text1 = stringResource(R.string.app_name_first_part)
+  val text2 = stringResource(R.string.app_name_second_part)
   val annotatedText = buildAnnotatedString {
     withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.onSurface)) { append(text1) }
     append(" ")
@@ -682,32 +677,13 @@ private fun IntroText(enableAnimation: Boolean, gm4: Boolean) {
     }
 
   val introText = buildAnnotatedString {
-    val gemma4Url = "https://ai.google.dev/gemma"
-    if (gm4) {
-      append(stringResource(R.string.gemma4_intro_part_1))
-      append(
-        buildTrackableUrlAnnotatedString(
-          url = litertUrl,
-          linkText = stringResource(R.string.litert_community_label),
-        )
+    append("${stringResource(R.string.app_intro)} ")
+    append(
+      buildTrackableUrlAnnotatedString(
+        url = litertUrl,
+        linkText = stringResource(R.string.litert_community_label),
       )
-      append(stringResource(R.string.gemma4_intro_part_2))
-      append(
-        buildTrackableUrlAnnotatedString(
-          url = gemma4Url,
-          linkText = stringResource(R.string.gemma4_label),
-        )
-      )
-      append(".")
-    } else {
-      append("${stringResource(R.string.app_intro)} ")
-      append(
-        buildTrackableUrlAnnotatedString(
-          url = litertUrl,
-          linkText = stringResource(R.string.litert_community_label),
-        )
-      )
-    }
+    )
   }
   Text(
     introText,
@@ -743,13 +719,13 @@ private fun TryGm4IntroText(enableAnimation: Boolean) {
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Icon(
-      ImageVector.vectorResource(R.drawable.gemma_logo),
+      Icons.Default.Mic,
       contentDescription = null,
       modifier = Modifier.size(24.dp),
       tint = MaterialTheme.colorScheme.primary,
     )
     Text(
-      text = "Try Gemma 4 today",
+      text = "Conversa local, sem nuvem",
       style =
         MaterialTheme.typography.headlineSmall.copy(
           fontWeight = FontWeight.Medium,
@@ -761,7 +737,7 @@ private fun TryGm4IntroText(enableAnimation: Boolean) {
   }
 
   Text(
-    "Gemma 4 E2B & E4B are here! Try them in AI Chat, Agent Skills, or the use cases below.",
+    "Fale com o Kabem Voice ou explore os modelos e recursos abaixo.",
     style = MaterialTheme.typography.bodyMedium,
     modifier =
       Modifier.graphicsLayer {
@@ -891,10 +867,10 @@ private fun TaskList(
     ) {
       val chatToDescription =
         mapOf(
-          BuiltInTaskId.LLM_CHAT to "Chat with the latest Gemma 4 model today",
+          BuiltInTaskId.LLM_CHAT to "Converse com um modelo local no Kabem Voice",
           // use "\u00a0" to make sure the word before and after it should always be together when
           // wrapping lines.
-          BuiltInTaskId.LLM_AGENT_CHAT to "Have Gemma 4 complete agentic tasks for\u00A0you",
+          BuiltInTaskId.LLM_AGENT_CHAT to "Deixe o Kabem Voice executar tarefas para\u00A0voce",
         )
       for (task in
         listOf(
@@ -912,7 +888,7 @@ private fun TaskList(
       }
 
       Text(
-        text = "Explore other use cases",
+        text = "Explore outros recursos",
         style =
           MaterialTheme.typography.headlineSmall.copy(
             fontWeight = FontWeight.Medium,
@@ -1059,7 +1035,7 @@ private fun TaskCard(
   Card(
     modifier =
       modifier
-        .clip(RoundedCornerShape(24.dp))
+        .clip(RoundedCornerShape(12.dp))
         .clickable(onClick = onClick)
         .graphicsLayer { alpha = progress }
         .semantics { contentDescription = cbTask },

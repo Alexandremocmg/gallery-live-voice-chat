@@ -1,15 +1,15 @@
-# Google AI Edge Gallery ✨
+# Kabem Voice ✨
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/google-ai-edge/gallery)](https://github.com/google-ai-edge/gallery/releases)
+[![Branch](https://img.shields.io/badge/branch-feat%2Flive--voice--chat-coral)](https://github.com/Alexandremocmg/gallery-live-voice-chat/tree/feat/live-voice-chat)
 
-**Explore, Experience, and Evaluate the Future of On-Device Generative AI with Google AI Edge.**
+**Assistente de voz pessoal com IA local, offline e privado.**
 
-AI Edge Gallery is the premier destination for running the world's most powerful open-source Large Language Models (LLMs) on your mobile device. Experience high-performance Generative AI directly on your hardware—fully offline, private, and lightning-fast.
+Kabem Voice é um fork do Google AI Edge Gallery com identidade visual própria e foco em conversação por voz em tempo real. Rode modelos LLM poderosos diretamente no seu celular — sem internet, sem servidores, sem nenhum dado saindo do aparelho.
 
-**Now Featuring: Gemma 4**
+**Paleta visual:** coral (`#C95040`) · verde (`#4F665C`) · azul suave (`#4B667A`)
 
-The latest version brings official support for the newly released Gemma 4 family. As the centerpiece of this release, Gemma 4 allows you to test the cutting edge of on-device AI. Experience advanced reasoning, logic, and creative capabilities without ever sending your data to a server.
+Baseado no Google AI Edge Gallery com suporte oficial ao Gemma 4. Herda toda a infraestrutura de modelos (LiteRT, AICore) e adiciona o módulo Kabem Voice como funcionalidade principal.
 
 
 | **Install the app today from Google Play** | **Install the app today from App Store** | **Download for macOS** |
@@ -60,11 +60,21 @@ For users without Google Play access, install the apk from the [**latest release
     - For users without Google Play access: install the apk from the [**latest release**](https://github.com/google-ai-edge/gallery/releases/latest/)
 3.  **Install & Explore:** For detailed installation instructions (including for corporate devices) and a full user guide, head over to our [**Project Wiki**](https://github.com/google-ai-edge/gallery/wiki)!
 
+## 🎨 Design System
+
+*   **Identidade:** paleta coral/verde/azul suave, tipografia responsiva e acessível.
+*   **Material Design 3:** tema dinâmico com tokens de cor próprios para modo claro e escuro.
+*   **Componentes:** TopBar, PromoScreen e TemsOfUse reestilizados com a marca Kabem Voice.
+*   **Live Voice:** controles de galeria/câmera espaçados, animação de waveform e chip de perfil de resposta.
+
 ## 🛠️ Technology Highlights
 
-*   **Google AI Edge:** Core APIs and tools for on-device ML.
-*   **LiteRT:** Lightweight runtime for optimized model execution.
-*   **Hugging Face Integration:** For model discovery and download.
+*   **Google AI Edge:** Core APIs e ferramentas para ML on-device.
+*   **LiteRT:** runtime leve para execução otimizada de modelos.
+*   **Android TTS / SpeechRecognizer:** síntese e reconhecimento de voz nativos, sem dependência de nuvem.
+*   **PDFBox Android:** leitura e indexação de PDFs para estudo por voz.
+*   **DataStore + Protobuf:** persistência local de sessões, memórias e preferências.
+*   **Jetpack Compose + Material 3:** UI declarativa com tema personalizado Kabem Voice.
 
 ## ⌨️ Development
 

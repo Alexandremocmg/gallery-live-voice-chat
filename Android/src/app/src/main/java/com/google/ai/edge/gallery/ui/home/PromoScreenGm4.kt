@@ -16,7 +16,6 @@
 
 package com.google.ai.edge.gallery.ui.home
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +23,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,17 +35,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.toColorInt
 import com.google.ai.edge.gallery.R
 import kotlinx.coroutines.delay
 
@@ -58,37 +57,31 @@ fun PromoScreenGm4(onDismiss: () -> Unit) {
     modifier =
       Modifier.fillMaxSize()
         .background(
-          brush =
+            brush =
             Brush.verticalGradient(
-              colors = listOf(Color("#183570".toColorInt()), Color("#0A122D".toColorInt()))
+              colors = listOf(Color(0xFF6A2118), Color(0xFF18110F))
             )
         ),
     contentAlignment = Alignment.Center,
   ) {
-    // Top bg.
-    val gemmaPromoBg = ImageVector.vectorResource(R.drawable.gemma_promo_bg)
-    Image(
-      gemmaPromoBg,
-      contentDescription = null,
-      modifier =
-        Modifier.align(alignment = Alignment.TopCenter).graphicsLayer {
-          alpha = 0.46f
-          blendMode = BlendMode.Multiply
-
-          translationY = gemmaPromoBg.defaultHeight.toPx() * 0.2f
-          scaleX = 2f
-          scaleY = 2f
-          rotationZ = -15.7f
-        },
-    )
-
     Column(
       modifier = Modifier.fillMaxWidth(0.6f),
       verticalArrangement = Arrangement.spacedBy(12.dp),
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      // Center text.
-      Image(ImageVector.vectorResource(R.drawable.gemini_star), contentDescription = null)
+      Box(
+        modifier =
+          Modifier.size(72.dp)
+            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+          imageVector = Icons.Default.Mic,
+          contentDescription = "Kabem Voice",
+          modifier = Modifier.size(36.dp),
+          tint = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+      }
       Text(
         stringResource(R.string.introducing),
         style = MaterialTheme.typography.headlineSmall.copy(fontSize = 20.sp),
@@ -108,7 +101,7 @@ fun PromoScreenGm4(onDismiss: () -> Unit) {
 
       // Dismiss button.
       TextButton(onClick = onDismiss, modifier = Modifier.padding(top = 24.dp)) {
-        Text(stringResource(R.string.dismiss), color = Color(0xFFA8C7FA))
+        Text(stringResource(R.string.dismiss), color = MaterialTheme.colorScheme.primary)
       }
     }
   }

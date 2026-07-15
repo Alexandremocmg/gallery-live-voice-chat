@@ -146,65 +146,65 @@ val LocalCustomColors = staticCompositionLocalOf { CustomColors() }
 
 val lightCustomColors =
   CustomColors(
-    appTitleGradientColors = listOf(Color(0xFF85B1F8), Color(0xFF3174F1)),
-    tabHeaderBgColor = Color(0xFF3174F1),
+    appTitleGradientColors = listOf(Color(0xFFC95040), Color(0xFFC95040)),
+    tabHeaderBgColor = Color(0xFFC95040),
     taskCardBgColor = surfaceContainerLowestLight,
     taskBgColors =
       listOf(
         // red
-        Color(0xFFFFF5F5),
+        Color(0xFFFFF1EE),
         // green
-        Color(0xFFF4FBF6),
+        Color(0xFFF0F8F3),
         // blue
-        Color(0xFFF1F6FE),
+        Color(0xFFF0F6FA),
         // yellow
-        Color(0xFFFFFBF0),
+        Color(0xFFFFF7E9),
       ),
     taskBgGradientColors =
       listOf(
         // red
-        listOf(Color(0xFFE25F57), Color(0xFFDB372D)),
+        listOf(Color(0xFFD96A5B), Color(0xFFC95040)),
         // green
-        listOf(Color(0xFF41A15F), Color(0xFF128937)),
+        listOf(Color(0xFF68A984), Color(0xFF4F8C6D)),
         // blue
-        listOf(Color(0xFF669DF6), Color(0xFF3174F1)),
+        listOf(Color(0xFF7EAFCB), Color(0xFF5C8EA9)),
         // yellow
-        listOf(Color(0xFFFDD45D), Color(0xFFCAA12A)),
+        listOf(Color(0xFFE2B866), Color(0xFFC7953D)),
       ),
     taskIconColors =
       listOf(
         // red.
-        Color(0xFFDB372D),
+        Color(0xFFC95040),
         // green
-        Color(0xFF128937),
+        Color(0xFF4F8C6D),
         // blue
-        Color(0xFF3174F1),
+        Color(0xFF5C8EA9),
         // yellow
-        Color(0xFFCAA12A),
+        Color(0xFFC7953D),
       ),
     taskIconShapeBgColor = Color.White,
-    homeBottomGradient = listOf(Color(0x00F8F9FF), Color(0xffFFEFC9)),
-    agentBubbleBgColor = Color(0xFFe9eef6),
-    userBubbleBgColor = Color(0xFF32628D),
-    linkColor = Color(0xFF32628D),
-    successColor = Color(0xff3d860b),
-    recordButtonBgColor = Color(0xFFEE675C),
+    homeBottomGradient = listOf(Color(0x00F7F9F7), Color(0xFFF7F9F7)),
+    agentBubbleBgColor = Color(0xFFE8EFEB),
+    userBubbleBgColor = Color(0xFFC95040),
+    linkColor = Color(0xFF9D493D),
+    successColor = Color(0xFF4F8C6D),
+    recordButtonBgColor = Color(0xFFC95040),
     waveFormBgColor = Color(0xFFaaaaaa),
     modelInfoIconColor = Color(0xFFCCCCCC),
     warningContainerColor = Color(0xfffef7e0),
     warningTextColor = Color(0xffe37400),
     errorContainerColor = Color(0xfffce8e6),
     errorTextColor = Color(0xffd93025),
-    newFeatureContainerColor = Color(0xFFEEDCFE),
-    newFeatureTextColor = Color(0xFF400B84),
-    bgStarColor = Color(0x3A669AF5),
+    newFeatureContainerColor = Color(0xFFFFE6D1),
+    newFeatureTextColor = Color(0xFF65351F),
+    bgStarColor = Color(0x24C95040),
     promoBannerBgBrush =
       Brush.linearGradient(
         colorStops =
           arrayOf(
-            0.0f to Color(0x42ACB7FF),
-            0.6154f to Color(0x422D96FF),
-            1.0f to Color(0x423C6BFF),
+            0.0f to Color(0x42FFDAD3),
+            0.6154f to Color(0x42FFC1B6),
+            1.0f to Color(0x42F2A296),
           ),
         start = Offset(0f, 0f),
         end = Offset(0f, Float.POSITIVE_INFINITY),
@@ -213,9 +213,9 @@ val lightCustomColors =
       Brush.linearGradient(
         colorStops =
           arrayOf(
-            0.2442f to Color(0x3B446EFF),
-            0.4296f to Color(0x3B2E96FF),
-            0.6651f to Color(0x3BB1C5FF),
+            0.2442f to Color(0x3B8E4C42),
+            0.4296f to Color(0x3BC95040),
+            0.6651f to Color(0x3BFFDAD3),
           ),
         start = Offset(0f, 1f),
         end = Offset(1f, 0f),
@@ -224,8 +224,8 @@ val lightCustomColors =
 
 val darkCustomColors =
   CustomColors(
-    appTitleGradientColors = listOf(Color(0xFF85B1F8), Color(0xFF3174F1)),
-    tabHeaderBgColor = Color(0xFF3174F1),
+    appTitleGradientColors = listOf(Color(0xFFFFB4A8), Color(0xFFFFB4A8)),
+    tabHeaderBgColor = Color(0xFF912F25),
     taskCardBgColor = surfaceContainerHighDark,
     taskBgColors =
       listOf(
@@ -241,44 +241,44 @@ val darkCustomColors =
     taskBgGradientColors =
       listOf(
         // red
-        listOf(Color(0xFFE25F57), Color(0xFFDB372D)),
+        listOf(Color(0xFFE58B7D), Color(0xFFC95040)),
         // green
-        listOf(Color(0xFF41A15F), Color(0xFF128937)),
+        listOf(Color(0xFF86B99A), Color(0xFF4F8C6D)),
         // blue
-        listOf(Color(0xFF669DF6), Color(0xFF3174F1)),
+        listOf(Color(0xFF9CC4DA), Color(0xFF5C8EA9)),
         // yellow
-        listOf(Color(0xFFFDD45D), Color(0xFFCAA12A)),
+        listOf(Color(0xFFE8C982), Color(0xFFC7953D)),
       ),
     taskIconColors =
       listOf(
         // red.
-        Color(0xFFE25F57),
+        Color(0xFFFFB4A8),
         // green
-        Color(0xFF41A15F),
+        Color(0xFF86B99A),
         // blue
-        Color(0xFF669DF6),
+        Color(0xFF9CC4DA),
         // yellow
-        Color(0xFFCAA12A),
+        Color(0xFFE8C982),
       ),
     taskIconShapeBgColor = Color(0xFF202124),
-    homeBottomGradient = listOf(Color(0x00F8F9FF), Color(0x1AF6AD01)),
-    agentBubbleBgColor = Color(0xFF1b1c1d),
-    userBubbleBgColor = Color(0xFF1f3760),
-    linkColor = Color(0xFF9DCAFC),
-    successColor = Color(0xFFA1CE83),
-    recordButtonBgColor = Color(0xFFEE675C),
+    homeBottomGradient = listOf(Color(0x00101412), Color(0xFF101412)),
+    agentBubbleBgColor = Color(0xFF202A24),
+    userBubbleBgColor = Color(0xFF912F25),
+    linkColor = Color(0xFFFFB4A8),
+    successColor = Color(0xFF86B99A),
+    recordButtonBgColor = Color(0xFFFFB4A8),
     waveFormBgColor = Color(0xFFaaaaaa),
     modelInfoIconColor = Color(0xFFCCCCCC),
     warningContainerColor = Color(0xff554c33),
     warningTextColor = Color(0xfffcc934),
     errorContainerColor = Color(0xff523a3b),
     errorTextColor = Color(0xffee675c),
-    newFeatureContainerColor = Color(0xFFEEDCFE),
-    newFeatureTextColor = Color(0xFF400B84),
-    bgStarColor = Color(0x19346BF0),
+    newFeatureContainerColor = Color(0xFF5C3529),
+    newFeatureTextColor = Color(0xFFFFDCCF),
+    bgStarColor = Color(0x24FFB4A8),
     promoBannerBgBrush =
       Brush.linearGradient(
-        colorStops = arrayOf(0.0f to Color(0x82183570), 0.8077f to Color(0x820A122D)),
+        colorStops = arrayOf(0.0f to Color(0x823E1D1A), 0.8077f to Color(0x821A0E0C)),
         start = Offset(0f, 0f),
         end = Offset(0f, Float.POSITIVE_INFINITY),
       ),
@@ -286,9 +286,9 @@ val darkCustomColors =
       Brush.linearGradient(
         colorStops =
           arrayOf(
-            0.2442f to Color(0x6F0F41F8),
-            0.4296f to Color(0x6F1685F8),
-            0.6651f to Color(0x6F809EF3),
+            0.2442f to Color(0x6F6A2118),
+            0.4296f to Color(0x6FC95040),
+            0.6651f to Color(0x6FFFF0EB),
           ),
         start = Offset(0f, 1f),
         end = Offset(1f, 0f),
