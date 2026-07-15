@@ -26,6 +26,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.gallery.common.processLlmResponse
 import com.google.ai.edge.gallery.data.ConfigKeys
 import com.google.ai.edge.gallery.data.Model
+import com.google.ai.edge.gallery.data.VOICE_SESSION_TASK_ID
 import com.google.ai.edge.gallery.proto.AudioMessageProto
 import com.google.ai.edge.gallery.proto.ChatMessageProto
 import com.google.ai.edge.gallery.proto.ChatSessionProto
@@ -75,7 +76,11 @@ abstract class ChatViewModel(val userDataDataStore: DataStore<UserData>? = null)
   val historySessions: StateFlow<List<ChatSessionProto>> =
     userDataDataStore
       ?.data
-      ?.map { userData -> userData.chatSessionsList.sortedByDescending { it.timestampMs } }
+      ?.map { userData ->
+        userData.chatSessionsList
+          .filterNot { it.isVoiceSession || it.taskId == VOICE_SESSION_TASK_ID }
+          .sortedByDescending { it.timestampMs }
+      }
       ?.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

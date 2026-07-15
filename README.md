@@ -40,11 +40,13 @@ For users without Google Play access, install the apk from the [**latest release
 
 * **Audio Scribe**: Transcribe and translate voice recordings into text in real-time using high-efficiency on-device language models.
 
-* **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
+*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Features include multimodal support (camera/gallery), PDF study mode (chat with your documents via voice), advanced TTS configuration (Google Speech Services prioritization, offline mode), and persistent offline sessions.
 
-* **Mobile Actions**: Unlock offline device controls and automated tasks powered entirely by a finetune of FunctionGemma 270m.
+*   **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
 
-* **Tiny Garden**: A fun, experimental mini-game that uses natural language to plant and harvest a virtual garden using a finetune of FunctionGemma 270m.
+*   **Mobile Actions**: Unlock offline device controls and automated tasks powered entirely by a finetune of FunctionGemma 270m.
+
+*   **Tiny Garden**: A fun, experimental mini-game that uses natural language to plant and harvest a virtual garden using a finetune of FunctionGemma 270m.
 
 * **Model Management & Benchmark**: Gallery is a flexible sandbox for a wide variety of open-source models. Easily download models from the list or load your own custom models. Manage your model library effortlessly and run benchmark tests to understand exactly how each model performs on your specific hardware.
 

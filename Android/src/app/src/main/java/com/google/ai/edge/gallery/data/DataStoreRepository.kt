@@ -20,6 +20,7 @@ import androidx.datastore.core.DataStore
 import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.BenchmarkResult
 import com.google.ai.edge.gallery.proto.BenchmarkResults
+import com.google.ai.edge.gallery.proto.ChatSessionProto
 import com.google.ai.edge.gallery.proto.Cutout
 import com.google.ai.edge.gallery.proto.CutoutCollection
 import com.google.ai.edge.gallery.proto.ImportedModel
@@ -30,6 +31,8 @@ import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.proto.UserData
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+
+const val VOICE_SESSION_TASK_ID = "live_voice"
 
 // TODO(b/423700720): Change to async (suspend) functions
 interface DataStoreRepository {
@@ -65,6 +68,12 @@ interface DataStoreRepository {
   fun saveTtsVoiceMode(mode: TtsVoiceMode)
 
   fun readTtsVoiceMode(): TtsVoiceMode
+
+  fun readVoiceSessions(): List<ChatSessionProto>
+
+  fun saveVoiceSession(session: ChatSessionProto)
+
+  fun deleteVoiceSession(sessionId: String)
 
   fun saveSecret(key: String, value: String)
 
@@ -208,6 +217,37 @@ class DefaultDataStoreRepository(
   override fun readTtsVoiceMode(): TtsVoiceMode {
     return runBlocking {
       TtsVoiceMode.fromStorage(dataStore.data.first().ttsVoiceMode)
+    }
+  }
+
+  override fun readVoiceSessions(): List<ChatSessionProto> {
+    return runBlocking {
+      userDataDataStore.data.first().chatSessionsList
+        .filter { it.isVoiceSession || it.taskId == VOICE_SESSION_TASK_ID }
+        .sortedByDescending { if (it.updatedAtMs > 0L) it.updatedAtMs else it.timestampMs }
+    }
+  }
+
+  override fun saveVoiceSession(session: ChatSessionProto) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        val sessions = userData.chatSessionsList
+          .filterNot { it.sessionId == session.sessionId && (it.isVoiceSession || it.taskId == VOICE_SESSION_TASK_ID) }
+          .toMutableList()
+        sessions.add(session)
+        userData.toBuilder().clearChatSessions().addAllChatSessions(sessions).build()
+      }
+    }
+  }
+
+  override fun deleteVoiceSession(sessionId: String) {
+    runBlocking {
+      userDataDataStore.updateData { userData ->
+        val sessions = userData.chatSessionsList.filterNot {
+          it.sessionId == sessionId && (it.isVoiceSession || it.taskId == VOICE_SESSION_TASK_ID)
+        }
+        userData.toBuilder().clearChatSessions().addAllChatSessions(sessions).build()
+      }
     }
   }
 

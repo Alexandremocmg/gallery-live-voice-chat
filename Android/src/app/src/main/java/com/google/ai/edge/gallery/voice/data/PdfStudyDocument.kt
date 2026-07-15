@@ -22,13 +22,33 @@ data class PdfStudyDocument(
     get() = pages.size
 
   fun relevantContext(query: String, maxPages: Int = 4): String {
+    val selected = scorePages(query)
+      .filter { it.second > 0 }
+      .take(maxPages)
+      .ifEmpty { scorePages(query).take(maxPages) }
+
+    return selected.joinToString("\n\n") { (page, _) ->
+      "[Pagina ${page.pageNumber}]\n${page.text.take(6000)}"
+    }
+  }
+
+  fun relevantPageNumbers(query: String, maxPages: Int = 4): List<Int> {
+    val scoredPages = scorePages(query)
+    return scoredPages
+      .filter { it.second > 0 }
+      .take(maxPages)
+      .ifEmpty { scoredPages.take(maxPages) }
+      .map { it.first.pageNumber }
+  }
+
+  private fun scorePages(query: String): List<Pair<PdfPageText, Int>> {
     val terms = query
       .lowercase(Locale.ROOT)
       .split(Regex("[^\\p{L}\\p{N}]+"))
       .filter { it.length >= 3 }
       .distinct()
 
-    val scoredPages = pages
+    return pages
       .map { page ->
         val normalizedText = page.text.lowercase(Locale.ROOT)
         val score = terms.sumOf { term ->
@@ -37,15 +57,6 @@ data class PdfStudyDocument(
         page to score
       }
       .sortedWith(compareByDescending<Pair<PdfPageText, Int>> { it.second }.thenBy { it.first.pageNumber })
-
-    val selected = scoredPages
-      .filter { it.second > 0 }
-      .take(maxPages)
-      .ifEmpty { scoredPages.take(maxPages) }
-
-    return selected.joinToString("\n\n") { (page, _) ->
-      "[Pagina ${page.pageNumber}]\n${page.text.take(6000)}"
-    }
   }
 }
 

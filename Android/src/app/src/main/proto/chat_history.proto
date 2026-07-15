@@ -52,6 +52,11 @@ message ChatMessageProto {
   repeated string image_file_paths = 9;
   // A list of audio recordings associated with this message.
   repeated AudioMessageProto audio_clips = 10;
+  // Voice response depth profile used for this turn, when the message belongs
+  // to a Kabem Voice session.
+  string voice_response_profile = 11;
+  // PDF pages used as context for this voice turn.
+  repeated int32 pdf_page_numbers = 12;
 }
 
 // Represents an audio recording associated with a chat session message.
@@ -76,4 +81,12 @@ message ChatSessionProto {
   string task_id = 5;
   // The list of messages in the session history.
   repeated ChatMessageProto messages = 6;
+  // Timestamp of the most recent update to this session.
+  int64 updated_at_ms = 7;
+  // Persisted URI of the PDF attached to this voice session, when available.
+  string voice_pdf_uri = 8;
+  // Display name of the PDF attached to this voice session.
+  string voice_pdf_name = 9;
+  // True when this is a Kabem Voice session, instead of a regular text chat.
+  bool is_voice_session = 10;
 }

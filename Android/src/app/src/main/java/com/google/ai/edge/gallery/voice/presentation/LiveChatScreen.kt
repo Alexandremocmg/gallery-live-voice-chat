@@ -1,6 +1,7 @@
 package com.google.ai.edge.gallery.voice.presentation
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.util.Log
@@ -18,10 +19,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -51,6 +56,7 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
     val viewModel: VoiceViewModel = viewModel(
         factory = VoiceViewModel.Factory(context, modelManagerViewModel)
     )
+    var showSessions by remember { mutableStateOf(false) }
 
     // Request RECORD_AUDIO permission on entry
     var hasMicPermission by remember {
@@ -77,10 +83,25 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Kabem Voice (Ao Vivo)") },
+                title = {
+                    Column {
+                        Text("Kabem Voice (Ao Vivo)")
+                        Text(
+                            text = viewModel.activeSessionTitle.collectAsState().value,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSessions = true }) {
+                        Icon(Icons.Default.History, contentDescription = "Abrir sessoes")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -115,6 +136,12 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
                 PermissionRequestScreen {
                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
+            }
+            if (showSessions) {
+                SessionListSheet(
+                    viewModel = viewModel,
+                    onDismiss = { showSessions = false },
+                )
             }
         }
     }
@@ -160,6 +187,14 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (e: SecurityException) {
+                Log.w("LiveChatScreen", "PDF provider nao ofereceu permissao persistente", e)
+            }
             viewModel.loadPdf(uri, uri.lastPathSegment?.substringAfterLast('/') ?: "Documento PDF")
         }
     }
@@ -411,6 +446,123 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     }
 }
 
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun SessionListSheet(viewModel: VoiceViewModel, onDismiss: () -> Unit) {
+    val sessions by viewModel.sessions.collectAsState()
+    val activeSessionId by viewModel.activeSessionId.collectAsState()
+    var renameSessionId by remember { mutableStateOf<String?>(null) }
+    var renameText by remember { mutableStateOf("") }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Sessoes locais", style = MaterialTheme.typography.titleLarge)
+                FilledTonalIconButton(
+                    onClick = {
+                        viewModel.startNewSession()
+                        onDismiss()
+                    },
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Nova sessao")
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            if (sessions.isEmpty()) {
+                Text(
+                    "As conversas serao salvas aqui automaticamente.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                sessions.forEach { session ->
+                    ListItem(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                viewModel.resumeSession(session.id)
+                                onDismiss()
+                            },
+                        headlineContent = {
+                            Text(
+                                text = session.title,
+                                maxLines = 1,
+                            )
+                        },
+                        supportingContent = {
+                            Text(
+                                text = buildString {
+                                    append("${session.messageCount} mensagens")
+                                    if (session.pdfName.isNotBlank()) append(" • ${session.pdfName}")
+                                },
+                                maxLines = 1,
+                            )
+                        },
+                        trailingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (session.id == activeSessionId) {
+                                    Icon(
+                                        Icons.Default.History,
+                                        contentDescription = "Sessao ativa",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        renameSessionId = session.id
+                                        renameText = session.title
+                                    },
+                                ) {
+                                    Icon(Icons.Default.Edit, contentDescription = "Renomear sessao")
+                                }
+                                IconButton(onClick = { viewModel.deleteSession(session.id) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Excluir sessao")
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+        }
+    }
+
+    renameSessionId?.let { sessionId ->
+        AlertDialog(
+            onDismissRequest = { renameSessionId = null },
+            title = { Text("Renomear sessao") },
+            text = {
+                TextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("Nome") },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.renameSession(sessionId, renameText)
+                        renameSessionId = null
+                    },
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameSessionId = null }) { Text("Cancelar") }
+            },
+        )
+    }
 }
 
 @Composable
