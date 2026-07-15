@@ -92,6 +92,10 @@
   <string name="download" translatable="true">Download</string>
   <string name="downloaded_size" translatable="true">%1$s downloaded</string>
   <string name="drawer_settings_label" translatable="true">Settings</string>
+  <string name="tts_voice_title" translatable="true">Voice style</string>
+  <string name="tts_voice_description" translatable="true">Uses the best installed local Portuguese voice. No audio or text leaves the phone.</string>
+  <string name="tts_voice_natural" translatable="true">Natural</string>
+  <string name="tts_voice_economical" translatable="true">Econom&#x00ED;mica</string>
   <string name="drawer_settings_description" translatable="true">Manage application settings</string>
   <string name="drawer_models_label" translatable="true">Models</string>
   <string name="drawer_models_description" translatable="true">Browse, try, and benchmark models</string>

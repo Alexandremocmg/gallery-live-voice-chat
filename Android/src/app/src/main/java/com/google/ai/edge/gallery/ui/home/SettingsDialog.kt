@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.google.ai.edge.gallery.BuildConfig
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.TtsVoiceMode
 import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.ui.common.ClickableLink
 import com.google.ai.edge.gallery.ui.common.tos.AppTosDialog
@@ -93,13 +94,15 @@ private val THEME_OPTIONS = listOf(Theme.THEME_AUTO, Theme.THEME_LIGHT, Theme.TH
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsDialog(
-  curThemeOverride: Theme,
-  curFirebaseAnalytics: Boolean,
-  modelManagerViewModel: ModelManagerViewModel,
+    curThemeOverride: Theme,
+    curFirebaseAnalytics: Boolean,
+    curTtsVoiceMode: TtsVoiceMode,
+    modelManagerViewModel: ModelManagerViewModel,
   onDismissed: () -> Unit,
 ) {
   var selectedTheme by remember { mutableStateOf(curThemeOverride) }
   var selectedFirebaseAnalytics by remember { mutableStateOf(curFirebaseAnalytics) }
+  var selectedTtsVoiceMode by remember { mutableStateOf(curTtsVoiceMode) }
   var hfToken by remember { mutableStateOf(modelManagerViewModel.getTokenStatusAndData().data) }
   val dateFormatter = remember {
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -187,6 +190,45 @@ fun SettingsDialog(
                   },
                   checked = theme == selectedTheme,
                   label = { Text(stringResource(themeLabelRes(theme))) },
+                )
+              }
+            }
+          }
+
+          Column(
+            modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Text(
+              stringResource(R.string.tts_voice_title),
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+              stringResource(R.string.tts_voice_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MultiChoiceSegmentedButtonRow {
+              TtsVoiceMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                  shape =
+                    SegmentedButtonDefaults.itemShape(
+                      index = index,
+                      count = TtsVoiceMode.entries.size,
+                    ),
+                  onCheckedChange = {
+                    selectedTtsVoiceMode = mode
+                    modelManagerViewModel.saveTtsVoiceMode(mode)
+                  },
+                  checked = mode == selectedTtsVoiceMode,
+                  label = {
+                    Text(
+                      when (mode) {
+                        TtsVoiceMode.NATURAL -> stringResource(R.string.tts_voice_natural)
+                        TtsVoiceMode.ECONOMICAL -> stringResource(R.string.tts_voice_economical)
+                      }
+                    )
+                  },
                 )
               }
             }

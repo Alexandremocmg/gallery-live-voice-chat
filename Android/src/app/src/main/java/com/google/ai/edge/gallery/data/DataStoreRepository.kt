@@ -62,6 +62,10 @@ interface DataStoreRepository {
    */
   fun readFirebaseAnalytics(): Boolean
 
+  fun saveTtsVoiceMode(mode: TtsVoiceMode)
+
+  fun readTtsVoiceMode(): TtsVoiceMode
+
   fun saveSecret(key: String, value: String)
 
   fun readSecret(key: String): String?
@@ -190,6 +194,20 @@ class DefaultDataStoreRepository(
     return runBlocking {
       val settings = dataStore.data.first()
       !settings.disableFirebaseAnalytics
+    }
+  }
+
+  override fun saveTtsVoiceMode(mode: TtsVoiceMode) {
+    runBlocking {
+      dataStore.updateData { settings ->
+        settings.toBuilder().setTtsVoiceMode(mode.storageValue).build()
+      }
+    }
+  }
+
+  override fun readTtsVoiceMode(): TtsVoiceMode {
+    return runBlocking {
+      TtsVoiceMode.fromStorage(dataStore.data.first().ttsVoiceMode)
     }
   }
 

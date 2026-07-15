@@ -13,6 +13,7 @@ import com.google.ai.edge.gallery.data.ModelDownloadStatusType
 import com.google.ai.edge.gallery.data.RuntimeType
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.MAX_IMAGE_COUNT
+import com.google.ai.edge.gallery.data.TtsVoiceMode
 import com.google.ai.edge.gallery.runtime.runtimeHelper
 import com.google.ai.edge.gallery.ui.modelmanager.ModelInitializationStatusType
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -37,7 +38,11 @@ class VoiceViewModel(
   private val modelManagerViewModel: ModelManagerViewModel,
 ) : ViewModel() {
 
-  private val voiceChatManager = VoiceChatManager(context)
+  private val voiceChatManager =
+    VoiceChatManager(
+      context = context,
+      initialVoiceMode = modelManagerViewModel.readTtsVoiceMode(),
+    )
 
   private val _uiState = MutableStateFlow<VoiceUiState>(VoiceUiState.Idle)
   val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()

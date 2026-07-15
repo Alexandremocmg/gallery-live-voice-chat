@@ -8,16 +8,30 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import android.util.Log
+import com.google.ai.edge.gallery.data.TtsVoiceMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
-class VoiceChatManager(private val context: Context) : RecognitionListener, TextToSpeech.OnInitListener {
+class VoiceChatManager(
+    private val context: Context,
+    initialVoiceMode: TtsVoiceMode = TtsVoiceMode.NATURAL,
+) : RecognitionListener, TextToSpeech.OnInitListener {
+
+    companion object {
+        private const val TAG = "VoiceChatManager"
+        private const val GOOGLE_SPEECH_SERVICES_PACKAGE = "com.google.android.tts"
+        private val PT_BR = Locale("pt", "BR")
+    }
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var textToSpeech: TextToSpeech? = null
+    private var ttsInitialized = false
+    private var offlineVoiceAvailable = false
+    private var voiceMode = initialVoiceMode
     private val pendingUtterances = AtomicInteger(0)
 
     private val _speechState = MutableStateFlow<SpeechState>(SpeechState.Idle)
@@ -41,16 +55,33 @@ class VoiceChatManager(private val context: Context) : RecognitionListener, Text
     }
 
     private fun initTextToSpeech() {
-        textToSpeech = TextToSpeech(context, this)
+        val googleSpeechServicesInstalled = try {
+            context.packageManager.getApplicationInfo(GOOGLE_SPEECH_SERVICES_PACKAGE, 0)
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+        textToSpeech = if (googleSpeechServicesInstalled) {
+            Log.d(TAG, "Using Google Speech Services TTS engine")
+            TextToSpeech(context, this, GOOGLE_SPEECH_SERVICES_PACKAGE)
+        } else {
+            Log.w(TAG, "Google Speech Services not installed; using the device default TTS engine")
+            TextToSpeech(context, this)
+        }
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val result = textToSpeech?.setLanguage(Locale("pt", "BR"))
+            ttsInitialized = true
+            val result = textToSpeech?.setLanguage(PT_BR)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e("VoiceChatManager", "Portuguese (Brazil) is not supported for TTS on this device.")
+                Log.e(TAG, "Portuguese (Brazil) is not supported for TTS on this device.")
             }
-            
+
+            offlineVoiceAvailable = applyBestLocalVoice()
+            applyVoiceMode()
+
             textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     _speechState.value = SpeechState.Speaking
@@ -76,7 +107,48 @@ class VoiceChatManager(private val context: Context) : RecognitionListener, Text
                 }
             })
         } else {
-            Log.e("VoiceChatManager", "Initialization of TTS failed.")
+            Log.e(TAG, "Initialization of TTS failed.")
+        }
+    }
+
+    fun setVoiceMode(mode: TtsVoiceMode) {
+        voiceMode = mode
+        if (ttsInitialized) {
+            applyVoiceMode()
+        }
+    }
+
+    private fun applyVoiceMode() {
+        textToSpeech?.setSpeechRate(voiceMode.speechRate)
+        textToSpeech?.setPitch(1.0f)
+    }
+
+    private fun applyBestLocalVoice(): Boolean {
+        val engine = textToSpeech ?: return false
+        val localPortugueseVoices = engine.voices
+            .orEmpty()
+            .filter { voice ->
+                voice.locale.language == PT_BR.language &&
+                    !voice.isNetworkConnectionRequired
+            }
+
+        val bestVoice = localPortugueseVoices.maxWithOrNull(
+            compareBy<Voice> { if (it.locale.country == PT_BR.country) 1 else 0 }
+                .thenBy { it.quality }
+                .thenBy { -it.latency },
+        )
+
+        if (bestVoice != null) {
+            val result = engine.setVoice(bestVoice)
+            Log.d(
+                TAG,
+                "Selected local voice '${bestVoice.name}' quality=${bestVoice.quality} " +
+                "latency=${bestVoice.latency} result=$result",
+            )
+            return result == TextToSpeech.SUCCESS
+        } else {
+            Log.w(TAG, "No local pt-BR voice found; keeping the engine language default")
+            return false
         }
     }
 
@@ -97,7 +169,7 @@ class VoiceChatManager(private val context: Context) : RecognitionListener, Text
     }
 
     fun speak(text: String, flushQueue: Boolean = true) {
-        if (text.isNotBlank()) {
+        if (text.isNotBlank() && offlineVoiceAvailable) {
             if (flushQueue) {
                 pendingUtterances.set(0)
             }
@@ -105,6 +177,9 @@ class VoiceChatManager(private val context: Context) : RecognitionListener, Text
             pendingUtterances.incrementAndGet()
             val queueMode = if (flushQueue) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
             textToSpeech?.speak(text, queueMode, null, utteranceId)
+        } else if (text.isNotBlank()) {
+            Log.e(TAG, "Speech skipped because no local pt-BR voice is available")
+            _speechState.value = SpeechState.Idle
         }
     }
 

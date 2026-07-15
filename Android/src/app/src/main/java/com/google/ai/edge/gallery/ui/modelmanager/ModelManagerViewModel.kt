@@ -637,6 +637,14 @@ constructor(
     firebaseAnalytics?.setAnalyticsCollectionEnabled(enabled)
   }
 
+  fun readTtsVoiceMode(): com.google.ai.edge.gallery.data.TtsVoiceMode {
+    return dataStoreRepository.readTtsVoiceMode()
+  }
+
+  fun saveTtsVoiceMode(mode: com.google.ai.edge.gallery.data.TtsVoiceMode) {
+    dataStoreRepository.saveTtsVoiceMode(mode)
+  }
+
   fun getModelUrlResponse(model: Model, accessToken: String? = null): Int {
     try {
       val url = URL(model.url)
