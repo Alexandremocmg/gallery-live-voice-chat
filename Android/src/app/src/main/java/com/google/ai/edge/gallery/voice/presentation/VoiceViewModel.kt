@@ -37,6 +37,7 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ExperimentalApi
 import java.text.Normalizer
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -107,12 +108,13 @@ class VoiceViewModel(
   private var activeModel: Model? = null
   private var activeTask: Task? = null
   private var isConversationReset = false
-  private var responseGenerationInProgress = false
+  private val responseGenerationInProgress = AtomicBoolean(false)
   private var lastTurnContext: TurnContext? = null
   private var sessionCreatedAtMs = 0L
   private var activePdfUri: String? = null
   private var activePdfName: String? = null
   private val sessionMessages = mutableListOf<ChatMessageProto>()
+  private val sessionMessagesLock = Any()
   private val sessionPersistenceMutex = Mutex()
 
   private val systemPrompt =
@@ -195,7 +197,7 @@ class VoiceViewModel(
             _uiState.value = VoiceUiState.Idle
           }
           is SpeechState.Idle -> {
-            if (_uiState.value is VoiceUiState.Speaking && !responseGenerationInProgress) {
+            if (_uiState.value is VoiceUiState.Speaking && !responseGenerationInProgress.get()) {
               _uiState.value = VoiceUiState.Idle
               kotlinx.coroutines.delay(800)
               startListening()
@@ -274,14 +276,14 @@ class VoiceViewModel(
     _activeSessionId.value = null
     _activeSessionTitle.value = "Nova sessao"
     sessionCreatedAtMs = 0L
-    sessionMessages.clear()
+    synchronized(sessionMessagesLock) { sessionMessages.clear() }
     activePdfUri = null
     activePdfName = null
     _recognizedText.value = ""
     _lastResponse.value = ""
     _responseProfile.value = ResponseDepthProfile.FLASH
     lastTurnContext = null
-    responseGenerationInProgress = false
+    responseGenerationInProgress.set(false)
     clearPdf()
     isConversationReset = false
     activeModel?.let(::ensureConversationReset)
@@ -413,7 +415,10 @@ class VoiceViewModel(
       } catch (e: Exception) {
         Log.e("VoiceViewModel", "Failed to read PDF", e)
         _pdfDocument.value = null
-        _pdfError.value = e.message ?: "Nao foi possivel ler o PDF."
+        activePdfUri = null
+        activePdfName = null
+        _pdfError.value = "PDF nao encontrado ou sem permissao de acesso."
+        persistCurrentSession()
       } finally {
         _pdfLoading.value = false
       }
@@ -429,7 +434,18 @@ class VoiceViewModel(
   }
 
   private fun generateResponse(prompt: String) {
-    val model = activeModel ?: return
+    if (!responseGenerationInProgress.compareAndSet(false, true)) {
+      Log.w("VoiceViewModel", "Ignoring a response request while another one is running")
+      return
+    }
+
+    val model = activeModel
+    if (model == null) {
+      responseGenerationInProgress.set(false)
+      _uiState.value = VoiceUiState.Idle
+      return
+    }
+
     val imagesForTurn = _attachedImages.value
     val pdfContext = _pdfDocument.value?.relevantContext(prompt)
     val pdfPageNumbers = _pdfDocument.value?.relevantPageNumbers(prompt).orEmpty()
@@ -458,7 +474,6 @@ class VoiceViewModel(
     var pendingSpeechText = ""
     var hasSpokenFirstSegment = false
 
-    responseGenerationInProgress = true
     _responseProfile.value = profile
 
     viewModelScope.launch(Dispatchers.Default) {
@@ -480,7 +495,7 @@ class VoiceViewModel(
             }
 
             if (done) {
-              responseGenerationInProgress = false
+              responseGenerationInProgress.set(false)
               val finalSegment = pendingSpeechText.trim()
               if (finalSegment.isNotBlank()) {
                 hasSpokenFirstSegment =
@@ -508,7 +523,7 @@ class VoiceViewModel(
           },
           cleanUpListener = {},
           onError = { error ->
-            responseGenerationInProgress = false
+            responseGenerationInProgress.set(false)
             viewModelScope.launch(Dispatchers.Main) {
               _attachedImages.value = emptyList()
               _uiState.value = VoiceUiState.Error("Erro na geracao da resposta: $error")
@@ -517,7 +532,7 @@ class VoiceViewModel(
           coroutineScope = viewModelScope,
         )
       } catch (e: Exception) {
-        responseGenerationInProgress = false
+        responseGenerationInProgress.set(false)
         Log.e("VoiceViewModel", "Failed to run local inference", e)
         withContext(Dispatchers.Main) {
           _attachedImages.value = emptyList()
@@ -718,10 +733,12 @@ class VoiceViewModel(
     _activeSessionId.value = session.sessionId
     _activeSessionTitle.value = session.title.ifBlank { "Nova sessao" }
     sessionCreatedAtMs = session.timestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()
-    sessionMessages.clear()
-    sessionMessages.addAll(session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES))
-    val lastUserMessage = sessionMessages.lastOrNull { it.side == ChatSideProto.CHAT_SIDE_USER }
-    val lastAssistantMessage = sessionMessages.lastOrNull { it.side == ChatSideProto.CHAT_SIDE_MODEL }
+    val (lastUserMessage, lastAssistantMessage) = synchronized(sessionMessagesLock) {
+      sessionMessages.clear()
+      sessionMessages.addAll(session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES))
+      sessionMessages.lastOrNull { it.side == ChatSideProto.CHAT_SIDE_USER } to
+        sessionMessages.lastOrNull { it.side == ChatSideProto.CHAT_SIDE_MODEL }
+    }
     _recognizedText.value = lastUserMessage?.content.orEmpty()
     _lastResponse.value = lastAssistantMessage?.content.orEmpty()
     _responseProfile.value = lastAssistantMessage?.voiceResponseProfile
@@ -740,7 +757,13 @@ class VoiceViewModel(
     if (activePdfUri != null) {
       loadPdf(Uri.parse(activePdfUri), activePdfName ?: "Documento PDF")
     }
-    responseGenerationInProgress = false
+    responseGenerationInProgress.set(false)
+    isConversationReset = false
+    activeModel?.let { model ->
+      if (modelManagerViewModel.uiState.value.isModelInitialized(model)) {
+        ensureConversationReset(model)
+      }
+    }
     if (activeModel != null && modelManagerViewModel.uiState.value.isModelInitialized(activeModel!!)) {
       _uiState.value = VoiceUiState.Idle
     }
@@ -759,47 +782,55 @@ class VoiceViewModel(
 
   private fun recordUserMessage(prompt: String, profile: ResponseDepthProfile, pageNumbers: List<Int>) {
     ensureActiveSession(prompt)
-    sessionMessages.add(
-      ChatMessageProto.newBuilder()
-        .setMessageType("TEXT")
-        .setContent(prompt.take(MAX_SAVED_MESSAGE_LENGTH))
-        .setSide(ChatSideProto.CHAT_SIDE_USER)
-        .setVoiceResponseProfile(profile.name)
-        .addAllPdfPageNumbers(pageNumbers)
-        .build()
-    )
-    trimSavedMessages()
+    synchronized(sessionMessagesLock) {
+      sessionMessages.add(
+        ChatMessageProto.newBuilder()
+          .setMessageType("TEXT")
+          .setContent(prompt.take(MAX_SAVED_MESSAGE_LENGTH))
+          .setSide(ChatSideProto.CHAT_SIDE_USER)
+          .setVoiceResponseProfile(profile.name)
+          .addAllPdfPageNumbers(pageNumbers)
+          .build()
+      )
+      trimSavedMessagesLocked()
+    }
     persistCurrentSession()
   }
 
   private fun recordAssistantMessage(text: String, profile: ResponseDepthProfile, pageNumbers: List<Int>) {
-    sessionMessages.add(
-      ChatMessageProto.newBuilder()
-        .setMessageType("TEXT")
-        .setContent(text.take(MAX_SAVED_MESSAGE_LENGTH))
-        .setSide(ChatSideProto.CHAT_SIDE_MODEL)
-        .setVoiceResponseProfile(profile.name)
-        .addAllPdfPageNumbers(pageNumbers)
-        .build()
-    )
-    trimSavedMessages()
+    synchronized(sessionMessagesLock) {
+      sessionMessages.add(
+        ChatMessageProto.newBuilder()
+          .setMessageType("TEXT")
+          .setContent(text.take(MAX_SAVED_MESSAGE_LENGTH))
+          .setSide(ChatSideProto.CHAT_SIDE_MODEL)
+          .setVoiceResponseProfile(profile.name)
+          .addAllPdfPageNumbers(pageNumbers)
+          .build()
+      )
+      trimSavedMessagesLocked()
+    }
     persistCurrentSession()
   }
 
-  private fun trimSavedMessages() {
+  private fun trimSavedMessagesLocked() {
     while (sessionMessages.size > MAX_SAVED_SESSION_MESSAGES) sessionMessages.removeAt(0)
   }
 
   private fun buildSessionContext(): String {
-    return sessionMessages.takeLast(8).joinToString(" | ") { message ->
+    val messages = synchronized(sessionMessagesLock) { sessionMessages.takeLast(6).toList() }
+    return messages.joinToString(" | ") { message ->
       val speaker = if (message.side == ChatSideProto.CHAT_SIDE_USER) "Usuario" else "Kabem"
-      "$speaker: ${message.content.take(420)}"
+      "$speaker: ${message.content.take(320)}"
     }.take(MAX_SESSION_CONTEXT_LENGTH)
   }
 
   private fun persistCurrentSession() {
     val sessionId = _activeSessionId.value ?: return
-    if (sessionMessages.isEmpty()) return
+    val messages = synchronized(sessionMessagesLock) {
+      if (sessionMessages.isEmpty()) return
+      sessionMessages.toList()
+    }
     val session = ChatSessionProto.newBuilder()
       .setSessionId(sessionId)
       .setTitle(_activeSessionTitle.value)
@@ -810,7 +841,7 @@ class VoiceViewModel(
       .setIsVoiceSession(true)
       .setVoicePdfUri(activePdfUri.orEmpty())
       .setVoicePdfName(_pdfDocument.value?.displayName ?: activePdfName.orEmpty())
-      .addAllMessages(sessionMessages)
+      .addAllMessages(messages)
       .build()
     persistProtoSession(session)
   }

@@ -169,17 +169,28 @@ class VoiceChatManager(
     }
 
     fun speak(text: String, flushQueue: Boolean = true) {
-        if (text.isNotBlank() && offlineVoiceAvailable) {
-            if (flushQueue) {
-                pendingUtterances.set(0)
-            }
-            val utteranceId = "${System.nanoTime()}"
-            pendingUtterances.incrementAndGet()
-            val queueMode = if (flushQueue) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-            textToSpeech?.speak(text, queueMode, null, utteranceId)
-        } else if (text.isNotBlank()) {
-            Log.e(TAG, "Speech skipped because no local pt-BR voice is available")
+        if (text.isBlank()) return
+
+        val engine = textToSpeech
+        if (!ttsInitialized || engine == null) {
+            Log.e(TAG, "Speech skipped because the TTS engine is not initialized")
             _speechState.value = SpeechState.Idle
+            return
+        }
+
+        if (flushQueue) {
+            pendingUtterances.set(0)
+        }
+        val utteranceId = "${System.nanoTime()}"
+        pendingUtterances.incrementAndGet()
+        val queueMode = if (flushQueue) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        val result = engine.speak(text, queueMode, null, utteranceId)
+        if (result == TextToSpeech.ERROR) {
+            pendingUtterances.set(0)
+            _speechState.value = SpeechState.Idle
+            Log.e(TAG, "TTS rejected the utterance")
+        } else if (!offlineVoiceAvailable) {
+            Log.w(TAG, "No local pt-BR voice; using the engine default voice as fallback")
         }
     }
 
@@ -221,7 +232,19 @@ class VoiceChatManager(
             else -> "Didn't understand, please try again."
         }
         Log.e("VoiceChatManager", "SpeechRecognizer error: $errorMessage")
+        if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+            recreateSpeechRecognizer()
+        }
         _speechState.value = SpeechState.Error(errorMessage)
+    }
+
+    private fun recreateSpeechRecognizer() {
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            speechRecognizer?.setRecognitionListener(this)
+        }
     }
 
     override fun onResults(results: Bundle?) {

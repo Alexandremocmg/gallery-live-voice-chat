@@ -28,7 +28,7 @@ data class PdfStudyDocument(
       .ifEmpty { scorePages(query).take(maxPages) }
 
     return selected.joinToString("\n\n") { (page, _) ->
-      "[Pagina ${page.pageNumber}]\n${page.text.take(6000)}"
+      "[Pagina ${page.pageNumber}]\n${page.text.take(2000)}"
     }
   }
 

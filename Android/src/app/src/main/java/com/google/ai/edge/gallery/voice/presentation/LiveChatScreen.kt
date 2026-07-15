@@ -16,6 +16,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -373,7 +375,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = lastResponse,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -469,8 +471,6 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             }
         }
     }
-}
-
 }
 
 @Composable
@@ -662,7 +662,12 @@ private fun SessionListSheet(viewModel: VoiceViewModel, onDismiss: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                sessions.forEach { session ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                ) {
+                    items(sessions, key = { it.id }) { session ->
                     ListItem(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -708,6 +713,7 @@ private fun SessionListSheet(viewModel: VoiceViewModel, onDismiss: () -> Unit) {
                             }
                         },
                     )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(20.dp))
