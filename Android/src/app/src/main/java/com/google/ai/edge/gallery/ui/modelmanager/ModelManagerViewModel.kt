@@ -211,6 +211,15 @@ constructor(
   val authService = AuthorizationService(context)
   var curAccessToken: String = ""
 
+  /**
+   * Detailed error from the last model URL connectivity check.
+   * This is exposed temporarily through the UI because the previous implementation
+   * converted every exception to -1 and displayed only "Unknown network error".
+   */
+  @Volatile
+  var lastModelUrlError: String = ""
+    private set
+
   override fun onCleared() {
     authService.dispose()
   }
@@ -673,6 +682,7 @@ constructor(
   }
 
   fun getModelUrlResponse(model: Model, accessToken: String? = null): Int {
+    lastModelUrlError = ""
     try {
       val url = URL(model.url)
       val connection = url.openConnection() as HttpURLConnection
@@ -684,7 +694,24 @@ constructor(
       // Report the result.
       return connection.responseCode
     } catch (e: Exception) {
-      Log.e(TAG, "$e")
+      val detail =
+        buildString {
+          append(e.javaClass.simpleName)
+          e.message?.takeIf { it.isNotBlank() }?.let {
+            append(": ")
+            append(it)
+          }
+          e.cause?.let { cause ->
+            append("\nCause: ")
+            append(cause.javaClass.simpleName)
+            cause.message?.takeIf { it.isNotBlank() }?.let {
+              append(": ")
+              append(it)
+            }
+          }
+        }
+      lastModelUrlError = detail
+      Log.e(TAG, "Model URL connectivity check failed for ${model.name}: $detail", e)
       return -1
     }
   }

@@ -558,7 +558,18 @@ fun DownloadAndTryButton(
         )
       },
       title = { Text(stringResource(R.string.error_unknown_network)) },
-      text = { Text(stringResource(R.string.error_check_internet)) },
+      text = {
+        val detail = modelManagerViewModel.lastModelUrlError
+        Text(
+          buildString {
+            append(stringResource(R.string.error_check_internet))
+            if (detail.isNotBlank()) {
+              append("\n\nDetalhes técnicos:\n")
+              append(detail)
+            }
+          }
+        )
+      },
       onDismissRequest = { showErrorDialog = false },
       confirmButton = {
         TextButton(onClick = { showErrorDialog = false }) { Text(stringResource(R.string.close)) }
