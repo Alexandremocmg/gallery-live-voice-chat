@@ -5,9 +5,12 @@
 
 **Assistente de voz pessoal com IA local, offline e privado.**
 
-Kabem Voice é um fork do Google AI Edge Gallery com identidade visual própria e foco em conversação por voz em tempo real. Rode modelos LLM poderosos diretamente no seu celular — sem internet, sem servidores, sem nenhum dado saindo do aparelho.
+Kabem Voice é um fork do Google AI Edge Gallery, redesenhado com identidade visual própria e foco central em conversação por voz em tempo real. Rode modelos LLM poderosos diretamente no seu celular — sem internet, sem servidores, sem nenhum dado saindo do aparelho ("Privado por padrão").
 
-**Paleta visual:** coral (`#C95040`) · verde (`#4F665C`) · azul suave (`#4B667A`)
+**Identidade Visual:**
+- Paleta de cores exclusiva baseada no novo logo (coral, verde, azul suave e fundo marfim).
+- Ícone do aplicativo, splash screen, launcher e interface inicial (Home) totalmente refeitos para refletir a marca Kabem Voice.
+- Interface limpa com destaque para o painel de conversação e o botão "Falar agora".
 
 Baseado no Google AI Edge Gallery com suporte oficial ao Gemma 4. Herda toda a infraestrutura de modelos (LiteRT, AICore) e adiciona o módulo Kabem Voice como funcionalidade principal.
 

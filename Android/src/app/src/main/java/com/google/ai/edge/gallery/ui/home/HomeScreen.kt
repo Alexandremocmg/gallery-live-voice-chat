@@ -63,6 +63,8 @@ import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -73,6 +75,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -367,15 +370,6 @@ fun HomeScreen(
               )
             }
           },
-          floatingActionButton = {
-            androidx.compose.material3.ExtendedFloatingActionButton(
-              onClick = { onLiveVoiceClicked() },
-              icon = { Icon(Icons.Default.Mic, "Live Voice") },
-              text = { Text("Falar agora") },
-              containerColor = MaterialTheme.colorScheme.primaryContainer,
-              contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-          }
         ) { innerPadding ->
           // Outer box for coloring the background edge to edge.
           Box(
@@ -398,8 +392,8 @@ fun HomeScreen(
                   .padding(top = innerPadding.calculateTopPadding())
                   .verticalScroll(rememberScrollState()),
             ) {
-              // Background star at top.
-              if (gm4) {
+              // Keep the legacy background only for the non-Kabem variant.
+              if (!gm4) {
                 val progress =
                   if (!enableAnimation) {
                     1f
@@ -438,7 +432,7 @@ fun HomeScreen(
                 Column(
                   modifier =
                     Modifier.padding(
-                        horizontal = if (gm4) 24.dp else 40.dp,
+                      horizontal = if (gm4) 0.dp else 40.dp,
                         vertical = if (gm4) 0.dp else 48.dp,
                       )
                       .padding(top = 24.dp, bottom = 16.dp)
@@ -446,13 +440,13 @@ fun HomeScreen(
                   verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                   if (gm4) {
-                    AppTitleGm4(enableAnimation = enableAnimation)
+                    KabemHomeHeader(
+                      enableAnimation = enableAnimation,
+                      onLiveVoiceClicked = onLiveVoiceClicked,
+                    )
                   } else {
                     AppTitle(enableAnimation = enableAnimation)
-                  }
-                  IntroText(enableAnimation = enableAnimation, gm4 = gm4)
-                  if (gm4) {
-                    TryGm4IntroText(enableAnimation = enableAnimation)
+                    IntroText(enableAnimation = enableAnimation, gm4 = gm4)
                   }
                 }
 
@@ -656,6 +650,98 @@ fun AppTitleGm4(enableAnimation: Boolean) {
       },
     extraTextPadding = 0.dp,
   )
+}
+
+@Composable
+private fun KabemHomeHeader(enableAnimation: Boolean, onLiveVoiceClicked: () -> Unit) {
+  val progress =
+    if (!enableAnimation) {
+      1f
+    } else {
+      rememberDelayedAnimationProgress(
+        initialDelay = ANIMATION_INIT_DELAY,
+        animationDurationMs = 700,
+        animationLabel = "Kabem home header",
+      )
+    }
+
+  Surface(
+    modifier =
+      Modifier.fillMaxWidth()
+        .padding(horizontal = 20.dp)
+        .graphicsLayer {
+          alpha = progress
+          translationY = (12.dp * (1 - progress)).toPx()
+        },
+    shape = RoundedCornerShape(28.dp),
+    color = MaterialTheme.colorScheme.surfaceContainerLow,
+  ) {
+    Column(
+      modifier = Modifier.padding(20.dp),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+          painter = painterResource(R.drawable.kabem_logo),
+          contentDescription = "Kabem Voice",
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.size(82.dp).clip(CircleShape),
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Kabem Voice",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Text(
+            text = "Conversa natural, direto no seu celular.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+      }
+
+      Row(
+        modifier =
+          Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Icon(
+          imageVector = Icons.Default.Mic,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.onSecondaryContainer,
+          modifier = Modifier.size(18.dp),
+        )
+        Text(
+          text = "Privado por padrao - processamento local",
+          style = MaterialTheme.typography.labelLarge,
+          color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+      }
+
+      Button(
+        onClick = onLiveVoiceClicked,
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors =
+          ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+          ),
+      ) {
+        Icon(Icons.Default.Mic, contentDescription = null)
+        Spacer(modifier = Modifier.width(10.dp))
+        Text("Falar agora", style = MaterialTheme.typography.titleMedium)
+      }
+    }
+  }
 }
 
 @Composable

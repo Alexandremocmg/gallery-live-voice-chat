@@ -22,11 +22,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -67,11 +71,11 @@ fun GalleryTopAppBar(
           horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
           if (title == stringResource(R.string.app_name)) {
-            Icon(
-              imageVector = Icons.Filled.Mic,
-              modifier = Modifier.size(20.dp),
+            Image(
+              painter = painterResource(R.drawable.kabem_logo),
+              modifier = Modifier.size(20.dp).clip(CircleShape),
               contentDescription = "Kabem Voice",
-              tint = MaterialTheme.colorScheme.primary,
+              contentScale = ContentScale.Crop,
             )
           }
           BasicText(
@@ -95,7 +99,7 @@ fun GalleryTopAppBar(
     modifier = modifier,
     scrollBehavior = scrollBehavior,
     colors =
-      TopAppBarDefaults.centerAlignedTopAppBarColors(
+      TopAppBarDefaults.topAppBarColors(
         containerColor = MaterialTheme.colorScheme.surface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
       ),

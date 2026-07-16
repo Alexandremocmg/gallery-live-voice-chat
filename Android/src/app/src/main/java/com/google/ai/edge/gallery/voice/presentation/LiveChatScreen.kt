@@ -20,7 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Mic
@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -91,19 +92,28 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("Kabem Voice (Ao Vivo)")
-                        Text(
-                            text = viewModel.activeSessionTitle.collectAsState().value,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(com.google.ai.edge.gallery.R.drawable.kabem_logo),
+                            contentDescription = "Kabem Voice",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(36.dp).clip(CircleShape),
                         )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("Kabem Voice")
+                            Text(
+                                text = viewModel.activeSessionTitle.collectAsState().value,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                     }
                 },
                 actions = {
