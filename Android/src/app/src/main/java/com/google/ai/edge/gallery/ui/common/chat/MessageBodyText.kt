@@ -41,14 +41,16 @@ fun MessageBodyText(
   inProgress: Boolean,
   horizontalPadding: Dp = 12.dp,
   onCopyClicked: (String) -> Unit = {},
+  userTextColor: Color = Color.White,
+  userLinkColor: Color = Color.White,
 ) {
   if (message.side == ChatSide.USER) {
     LongPressCopyContainer(copyText = message.content, onCopyClicked = onCopyClicked) {
       MarkdownText(
         text = message.content,
         modifier = Modifier.padding(vertical = 12.dp).padding(horizontal = horizontalPadding),
-        textColor = Color.White,
-        linkColor = Color.White,
+        textColor = userTextColor,
+        linkColor = userLinkColor,
       )
     }
   } else if (message.side == ChatSide.AGENT) {

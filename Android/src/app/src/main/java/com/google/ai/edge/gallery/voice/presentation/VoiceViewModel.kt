@@ -68,6 +68,11 @@ import com.google.ai.edge.gallery.voice.skills.KabemSkillEngine
 import com.google.ai.edge.gallery.voice.skills.KabemSkillManifest
 import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessage
 import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessageMapper
+import com.google.ai.edge.gallery.voice.conversation.ConversationMutationDecision
+import com.google.ai.edge.gallery.voice.conversation.ConversationMutationPolicy
+import com.google.ai.edge.gallery.voice.conversation.ConversationMessageSource
+import com.google.ai.edge.gallery.voice.conversation.ConversationToken
+import com.google.ai.edge.gallery.voice.conversation.VOICE_CONVERSATION_SCHEMA_VERSION
 import com.google.ai.edge.gallery.voice.conversation.VoiceConversationPhase
 import com.google.ai.edge.gallery.voice.conversation.VoiceConversationStateMachine
 import com.google.ai.edge.litertlm.Contents
@@ -82,6 +87,9 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -115,6 +123,9 @@ class VoiceViewModel(
 
   private val _conversationMessages = MutableStateFlow<List<ConversationUiMessage>>(emptyList())
   val conversationMessages: StateFlow<List<ConversationUiMessage>> = _conversationMessages.asStateFlow()
+
+  private val _actionNotices = MutableSharedFlow<String>(extraBufferCapacity = 8)
+  val actionNotices: SharedFlow<String> = _actionNotices.asSharedFlow()
 
   private val _responseProfile = MutableStateFlow(ResponseDepthProfile.FLASH)
   val responseProfile: StateFlow<ResponseDepthProfile> = _responseProfile.asStateFlow()
@@ -220,6 +231,10 @@ class VoiceViewModel(
   private val sessionMessages = mutableListOf<ChatMessageProto>()
   private val sessionMessagesLock = Any()
   private val sessionPersistenceMutex = Mutex()
+  private val conversationMutationMutex = Mutex()
+  @Volatile private var sessionRevision = 0L
+  private val persistedRevisions = mutableMapOf<String, Long>()
+  @Volatile private var pendingConversationRewrite: PendingConversationRewrite? = null
 
   private val systemPrompt =
     """
@@ -429,9 +444,16 @@ class VoiceViewModel(
     voiceChatManager.requestLanguageModelDownload(englishState.dialect)
   }
 
-  fun submitText(text: String) {
+  fun submitText(text: String): Boolean = submitText(text, ConversationMessageSource.TEXT)
+
+  private fun submitText(
+    text: String,
+    source: ConversationMessageSource,
+  ): Boolean {
     val normalized = text.trim()
-    if (normalized.isBlank() || _uiState.value is VoiceUiState.Generating) return
+    if (normalized.isBlank() || _uiState.value is VoiceUiState.Generating ||
+      responseGenerationInProgress.get() || activeModel == null
+    ) return false
     _recognizedText.value = normalized
     _uiState.value = VoiceUiState.Generating
     conversationStateMachine.transitionTo(VoiceConversationPhase.THINKING)
@@ -440,98 +462,173 @@ class VoiceViewModel(
         text = normalized,
         locale = _activeSpeechLocale.value,
         backend = RecognitionBackend.ANDROID_SYSTEM,
-      )
+      ),
+      source = source,
     )
+    return responseGenerationInProgress.get()
   }
 
-  fun submitReviewedTranscript(text: String) {
-    submitText(text)
-  }
+  fun submitReviewedTranscript(text: String): Boolean =
+    submitText(text, ConversationMessageSource.VOICE)
 
-  fun editAndResendMessage(position: Int, text: String) {
+  fun editAndResendMessage(messageId: String, text: String) {
     val normalized = text.trim()
     if (normalized.isBlank() || responseGenerationInProgress.get()) return
     val model = activeModel ?: return
-    val removedMessages = synchronized(sessionMessagesLock) {
-      if (position !in sessionMessages.indices ||
-        sessionMessages[position].side != ChatSideProto.CHAT_SIDE_USER
-      ) return
-      sessionMessages.drop(position).also {
-        sessionMessages.subList(position, sessionMessages.size).clear()
-      }
-    }
-    refreshConversationMessages()
     viewModelScope.launch(Dispatchers.Default) {
-      try {
-        val initialMessages = currentLiteRtMessages()
-        model.runtimeHelper.resetConversation(
-          model = model,
-          supportImage = _imageSupport.value,
-          supportAudio = model.llmSupportAudio,
-          systemInstruction = Contents.of(systemPrompt),
-          initialMessages = initialMessages,
-        )
-        restoredInitialMessages = emptyList()
-        isConversationReset = true
-        runtimeHistoryStartMessageCount =
-          synchronized(sessionMessagesLock) {
-            (sessionMessages.size - MAX_RESTORED_MESSAGES).coerceAtLeast(0)
-          }
-        withContext(Dispatchers.Main) {
-          submitText(normalized)
-        }
-      } catch (error: Exception) {
-        synchronized(sessionMessagesLock) {
-          sessionMessages.addAll(removedMessages)
-        }
-        refreshConversationMessages()
-        withContext(Dispatchers.Main) {
-          _uiState.value = VoiceUiState.Error("Não foi possível editar a mensagem: ${error.message}")
-        }
+      conversationMutationMutex.withLock {
+        rewriteConversation(model, messageId, normalized, regenerate = false)
       }
     }
   }
 
-  fun regenerateMessage(position: Int) {
+  fun regenerateMessage(messageId: String) {
     if (responseGenerationInProgress.get()) return
     val model = activeModel ?: return
-    val promptAndRemoved = synchronized(sessionMessagesLock) {
-      if (position !in sessionMessages.indices ||
-        sessionMessages[position].side != ChatSideProto.CHAT_SIDE_MODEL
-      ) return
-      val userIndex = (position - 1 downTo 0).firstOrNull { index ->
-        sessionMessages[index].side == ChatSideProto.CHAT_SIDE_USER
-      } ?: return
-      val prompt = sessionMessages[userIndex].content
-      val removed = sessionMessages.drop(userIndex)
-      sessionMessages.subList(userIndex, sessionMessages.size).clear()
-      prompt to removed
-    }
-    refreshConversationMessages()
     viewModelScope.launch(Dispatchers.Default) {
-      try {
+      conversationMutationMutex.withLock {
+        rewriteConversation(model, messageId, replacement = null, regenerate = true)
+      }
+    }
+  }
+
+  private suspend fun rewriteConversation(
+    model: Model,
+    targetMessageId: String,
+    replacement: String?,
+    regenerate: Boolean,
+  ) {
+    if (responseGenerationInProgress.get()) {
+      _actionNotices.emit("Aguarde a resposta atual terminar antes de alterar o histórico.")
+      return
+    }
+    if (activeModel?.name != model.name) {
+      _actionNotices.emit("O modelo mudou; a ação foi cancelada.")
+      return
+    }
+    val sessionId = _activeSessionId.value ?: return
+    val snapshotMessages = synchronized(sessionMessagesLock) { sessionMessages.toList() }
+    val snapshotRollingSummary = rollingContextSummary
+    val snapshotRuntimeHistoryStart = runtimeHistoryStartMessageCount
+    val snapshotToken = ConversationToken(sessionId, sessionRevision, generationEpoch.get())
+    val targetIndex = snapshotMessages.indexOfFirst { it.messageId == targetMessageId }
+    if (targetIndex < 0) {
+      _actionNotices.emit("A mensagem não existe mais nesta conversa.")
+      return
+    }
+    val userIndex = if (regenerate) {
+      if (snapshotMessages[targetIndex].side != ChatSideProto.CHAT_SIDE_MODEL) -1
+      else (targetIndex - 1 downTo 0).firstOrNull {
+        snapshotMessages[it].side == ChatSideProto.CHAT_SIDE_USER
+      } ?: -1
+    } else targetIndex
+    if (userIndex < 0 || snapshotMessages[userIndex].side != ChatSideProto.CHAT_SIDE_USER) {
+      _actionNotices.emit("Não foi possível localizar a pergunta associada.")
+      return
+    }
+    // Media after the rewritten user turn is safely discarded with that branch. Media in the
+    // retained prefix or on the rewritten turn would have to be reconstructed, so it is blocked.
+    when (val decision = ConversationMutationPolicy.validateRewrite(snapshotMessages.take(userIndex + 1))) {
+      is ConversationMutationDecision.Blocked -> {
+        _actionNotices.emit(decision.reason)
+        return
+      }
+      ConversationMutationDecision.Allowed -> Unit
+    }
+    val prompt = replacement ?: snapshotMessages[userIndex].content
+    val candidate = snapshotMessages.take(userIndex)
+    try {
+      model.runtimeHelper.resetConversation(
+        model = model,
+        supportImage = _imageSupport.value,
+        supportAudio = model.llmSupportAudio,
+        systemInstruction = Contents.of(systemPrompt),
+        initialMessages = VoiceConversationMapper.toLiteRtMessages(candidate),
+      )
+      withContext(Dispatchers.Main) {
+        val current = ConversationToken(
+          _activeSessionId.value.orEmpty(), sessionRevision, generationEpoch.get()
+        )
+        if (!ConversationMutationPolicy.tokenStillCurrent(snapshotToken, current)) {
+          val runtimeRestored = runCatching {
+            model.runtimeHelper.resetConversation(
+              model = model,
+              supportImage = _imageSupport.value,
+              supportAudio = model.llmSupportAudio,
+              systemInstruction = Contents.of(systemPrompt),
+              initialMessages = currentLiteRtMessages(),
+            )
+          }.onFailure { error ->
+            Log.e("VoiceViewModel", "Failed to restore runtime after cancelled rewrite", error)
+          }.isSuccess
+          if (!runtimeRestored) {
+            isConversationReset = false
+            _uiState.value = VoiceUiState.Error("A conversa mudou e o modelo precisa ser reinicializado.")
+          }
+          _actionNotices.tryEmit(
+            if (runtimeRestored) "A conversa mudou; a ação foi cancelada."
+            else "A ação foi cancelada e o modelo será reinicializado."
+          )
+          return@withContext
+        }
+        synchronized(sessionMessagesLock) {
+          sessionMessages.clear()
+          sessionMessages.addAll(candidate)
+          rollingContextSummary = buildRollingContextSummaryLocked()
+          sessionRevision++
+        }
+        pendingConversationRewrite =
+          PendingConversationRewrite(
+            sessionId = sessionId,
+            originalMessages = snapshotMessages,
+            originalRollingSummary = snapshotRollingSummary,
+            originalRuntimeHistoryStart = snapshotRuntimeHistoryStart,
+          )
+        restoredInitialMessages = emptyList()
+        isConversationReset = true
+        runtimeHistoryStartMessageCount =
+          (candidate.size - MAX_RESTORED_MESSAGES).coerceAtLeast(0)
+        refreshConversationMessages()
+        if (!submitText(prompt, ConversationMessageSource.TEXT)) {
+          rollbackPendingConversationRewrite(model)
+          _actionNotices.tryEmit("A ação não foi aceita; o histórico foi restaurado.")
+        }
+      }
+    } catch (error: Exception) {
+      Log.e("VoiceViewModel", "Conversation rewrite failed", error)
+      rollbackPendingConversationRewrite(model)
+      _actionNotices.emit("Não foi possível atualizar a conversa: ${error.message ?: "erro desconhecido"}")
+    }
+  }
+
+  private suspend fun rollbackPendingConversationRewrite(model: Model? = activeModel): Boolean {
+    val pending = pendingConversationRewrite ?: return false
+    if (_activeSessionId.value != pending.sessionId) {
+      pendingConversationRewrite = null
+      return false
+    }
+    pendingConversationRewrite = null
+    synchronized(sessionMessagesLock) {
+      sessionMessages.clear()
+      sessionMessages.addAll(pending.originalMessages)
+      rollingContextSummary = pending.originalRollingSummary
+      sessionRevision++
+    }
+    runtimeHistoryStartMessageCount = pending.originalRuntimeHistoryStart
+    refreshConversationMessages()
+    persistCurrentSession()
+    if (model != null) {
+      runCatching {
         model.runtimeHelper.resetConversation(
           model = model,
           supportImage = _imageSupport.value,
           supportAudio = model.llmSupportAudio,
           systemInstruction = Contents.of(systemPrompt),
-          initialMessages = currentLiteRtMessages(),
+          initialMessages = VoiceConversationMapper.toLiteRtMessages(pending.originalMessages),
         )
-        restoredInitialMessages = emptyList()
-        isConversationReset = true
-        withContext(Dispatchers.Main) {
-          submitText(promptAndRemoved.first)
-        }
-      } catch (error: Exception) {
-        synchronized(sessionMessagesLock) {
-          sessionMessages.addAll(promptAndRemoved.second)
-        }
-        refreshConversationMessages()
-        withContext(Dispatchers.Main) {
-          _uiState.value = VoiceUiState.Error("Não foi possível regenerar a resposta: ${error.message}")
-        }
       }
     }
+    return true
   }
 
   fun speakMessage(text: String) {
@@ -615,10 +712,12 @@ class VoiceViewModel(
     voiceChatManager.stopSpeaking()
     pronunciationRecorder.stop(submit = false)
     generationEpoch.incrementAndGet()
+    pendingConversationRewrite = null
     activeModel?.let { model -> model.runtimeHelper.stopResponse(model) }
     _activeSessionId.value = null
     _activeSessionTitle.value = "Nova sessao"
     sessionCreatedAtMs = 0L
+    sessionRevision = 0L
     synchronized(sessionMessagesLock) { sessionMessages.clear() }
     _conversationMessages.value = emptyList()
     activePdfUri = null
@@ -661,19 +760,30 @@ class VoiceViewModel(
   fun renameSession(sessionId: String, title: String) {
     val cleanTitle = title.trim().replace(Regex("\\s+"), " ").take(80)
     if (cleanTitle.isBlank()) return
+    if (_activeSessionId.value == sessionId) {
+      _activeSessionTitle.value = cleanTitle
+      sessionRevision++
+      persistCurrentSession()
+      _sessions.value = _sessions.value.map { summary ->
+        if (summary.id == sessionId) summary.copy(title = cleanTitle) else summary
+      }
+      return
+    }
     viewModelScope.launch(Dispatchers.IO) {
       val session = modelManagerViewModel.dataStoreRepository.readVoiceSessions()
         .firstOrNull { it.sessionId == sessionId } ?: return@launch
+      val now = System.currentTimeMillis()
       val renamed = session.toBuilder()
         .setTitle(cleanTitle)
-        .setUpdatedAtMs(System.currentTimeMillis())
+        .setUpdatedAtMs(now)
+        .setVoiceSchemaVersion(VOICE_CONVERSATION_SCHEMA_VERSION)
+        .setVoiceRevision(maxOf(session.voiceRevision + 1, now))
         .build()
       persistProtoSession(renamed)
       withContext(Dispatchers.Main) {
         _sessions.value = _sessions.value.map { summary ->
           if (summary.id == sessionId) summary.copy(title = cleanTitle) else summary
         }
-        if (_activeSessionId.value == sessionId) _activeSessionTitle.value = cleanTitle
       }
     }
   }
@@ -769,6 +879,7 @@ class VoiceViewModel(
         _pdfDocument.value = PdfStudyDocumentReader.read(context, uri, displayName)
         activePdfUri = uri.toString()
         activePdfName = displayName
+        sessionRevision++
         persistCurrentSession()
       } catch (e: Exception) {
         Log.e("VoiceViewModel", "Failed to read PDF", e)
@@ -776,6 +887,7 @@ class VoiceViewModel(
         activePdfUri = null
         activePdfName = null
         _pdfError.value = "PDF nao encontrado ou sem permissao de acesso."
+        sessionRevision++
         persistCurrentSession()
       } finally {
         _pdfLoading.value = false
@@ -784,16 +896,19 @@ class VoiceViewModel(
   }
 
   fun clearPdf() {
+    val changed = _pdfDocument.value != null || activePdfUri != null || activePdfName != null
     _pdfDocument.value = null
     _pdfError.value = null
     activePdfUri = null
     activePdfName = null
+    if (changed) sessionRevision++
     persistCurrentSession()
   }
 
   private fun generateResponse(
     recognitionResult: SpeechRecognitionResult,
     pronunciationAudio: ByteArray? = null,
+    source: ConversationMessageSource = ConversationMessageSource.VOICE,
   ) {
     val prompt = recognitionResult.text
     if (handlePlaybackCommand(prompt)) return
@@ -924,8 +1039,16 @@ class VoiceViewModel(
     val boundedMemoryContext = fittedContext.firstOrNull { it.contains("MEMORIAS CONFIRMADAS") }.orEmpty()
     val detectedMemoryCandidate =
       if (_memoryEnabled.value) detectMemoryCandidate(prompt) else null
-    recordUserMessage(prompt, profile, pdfPageNumbers)
+    recordUserMessage(
+      prompt = prompt,
+      profile = profile,
+      pageNumbers = pdfPageNumbers,
+      source = source,
+      hadImages = imagesForTurn.isNotEmpty() || scannedPdfPageNumbers.isNotEmpty(),
+      hadAudio = audioForTurn != null,
+    )
     val generationSessionId = _activeSessionId.value
+    val generationRevision = sessionRevision
     val wrappedPrompt =
       buildPromptWithInternalInstruction(
         profile = profile,
@@ -1005,9 +1128,18 @@ class VoiceViewModel(
           resultListener = resultListener@{ partialResult, done, _ ->
             if (
               _activeSessionId.value != generationSessionId ||
-                generationEpoch.get() != generationId
+                generationEpoch.get() != generationId ||
+                sessionRevision != generationRevision
             ) {
-              if (done) releasePdfBitmapLease(pdfBitmapLease)
+              if (done) {
+                releasePdfBitmapLease(pdfBitmapLease)
+                if (generationEpoch.get() == generationId) {
+                  responseGenerationInProgress.set(false)
+                  viewModelScope.launch(Dispatchers.Main) {
+                    rollbackPendingConversationRewrite(turnModel)
+                  }
+                }
+              }
               return@resultListener
             }
             val parsedChunks = bilingualParser.append(partialResult).chunks
@@ -1073,8 +1205,15 @@ class VoiceViewModel(
               viewModelScope.launch(Dispatchers.Main) {
                 if (
                   _activeSessionId.value != generationSessionId ||
-                    generationEpoch.get() != generationId
-                ) return@launch
+                    generationEpoch.get() != generationId ||
+                    sessionRevision != generationRevision
+                ) {
+                  if (generationEpoch.get() == generationId) {
+                    responseGenerationInProgress.set(false)
+                    rollbackPendingConversationRewrite(turnModel)
+                  }
+                  return@launch
+                }
                 try {
                   _attachedImages.value = emptyList()
                   clearAttachedAudio()
@@ -1116,6 +1255,7 @@ class VoiceViewModel(
             if (generationEpoch.get() != generationId) return@runInference
             responseGenerationInProgress.set(false)
             viewModelScope.launch(Dispatchers.Main) {
+              rollbackPendingConversationRewrite(turnModel)
               _attachedImages.value = emptyList()
               clearAttachedAudio()
               _uiState.value = VoiceUiState.Error("Erro na geracao da resposta: $error")
@@ -1129,6 +1269,7 @@ class VoiceViewModel(
         responseGenerationInProgress.set(false)
         Log.e("VoiceViewModel", "Failed to run local inference", e)
         withContext(Dispatchers.Main) {
+          rollbackPendingConversationRewrite(turnModel)
           _attachedImages.value = emptyList()
           clearAttachedAudio()
           _uiState.value = VoiceUiState.Error("Excecao na inferencia: ${e.message}")
@@ -1398,6 +1539,7 @@ class VoiceViewModel(
     voiceChatManager.stopSpeaking()
     pronunciationRecorder.stop(submit = false)
     generationEpoch.incrementAndGet()
+    pendingConversationRewrite = null
     activeModel?.let { model -> model.runtimeHelper.stopResponse(model) }
     releaseActivePdfBitmaps()
     teachingState = TeachingState()
@@ -1429,9 +1571,15 @@ class VoiceViewModel(
     _activeSessionId.value = session.sessionId
     _activeSessionTitle.value = session.title.ifBlank { "Nova sessao" }
     sessionCreatedAtMs = session.timestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+    val migratedMessages = ConversationMutationPolicy.migrateLegacyMessages(
+      session.sessionId,
+      sessionCreatedAtMs,
+      session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES),
+    )
+    sessionRevision = session.voiceRevision.coerceAtLeast(0L)
     synchronized(sessionMessagesLock) {
       sessionMessages.clear()
-      sessionMessages.addAll(session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES))
+      sessionMessages.addAll(migratedMessages)
     }
     refreshConversationMessages()
     val (lastUserMessage, lastAssistantMessage) = synchronized(sessionMessagesLock) {
@@ -1471,6 +1619,12 @@ class VoiceViewModel(
     if (activeModel != null && modelManagerViewModel.uiState.value.isModelInitialized(activeModel!!)) {
       _uiState.value = VoiceUiState.Idle
     }
+    if (session.voiceSchemaVersion < VOICE_CONVERSATION_SCHEMA_VERSION ||
+      migratedMessages != session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES)
+    ) {
+      sessionRevision++
+      persistCurrentSession()
+    }
   }
 
   private fun ensureActiveSession(titleFromPrompt: String) {
@@ -1484,7 +1638,14 @@ class VoiceViewModel(
       .ifBlank { "Nova sessao" }
   }
 
-  private fun recordUserMessage(prompt: String, profile: ResponseDepthProfile, pageNumbers: List<Int>) {
+  private fun recordUserMessage(
+    prompt: String,
+    profile: ResponseDepthProfile,
+    pageNumbers: List<Int>,
+    source: ConversationMessageSource,
+    hadImages: Boolean,
+    hadAudio: Boolean,
+  ) {
     ensureActiveSession(prompt)
     synchronized(sessionMessagesLock) {
       sessionMessages.add(
@@ -1494,12 +1655,18 @@ class VoiceViewModel(
           .setSide(ChatSideProto.CHAT_SIDE_USER)
           .setVoiceResponseProfile(profile.name)
           .addAllPdfPageNumbers(pageNumbers)
+          .setMessageId(UUID.randomUUID().toString())
+          .setCreatedAtMs(System.currentTimeMillis())
+          .setVoiceMessageSource(source.name)
+          .setVoiceHadImages(hadImages)
+          .setVoiceHadAudio(hadAudio)
           .build()
       )
       trimSavedMessagesLocked()
+      sessionRevision++
     }
     refreshConversationMessages()
-    persistCurrentSession()
+    if (pendingConversationRewrite == null) persistCurrentSession()
   }
 
   private fun recordAssistantMessage(text: String, profile: ResponseDepthProfile, pageNumbers: List<Int>) {
@@ -1510,12 +1677,18 @@ class VoiceViewModel(
           .setContent(text.take(MAX_SAVED_MESSAGE_LENGTH))
           .setSide(ChatSideProto.CHAT_SIDE_MODEL)
           .setVoiceResponseProfile(profile.name)
+          .setIsMarkdown(true)
           .addAllPdfPageNumbers(pageNumbers)
+          .setMessageId(UUID.randomUUID().toString())
+          .setCreatedAtMs(System.currentTimeMillis())
+          .setVoiceMessageSource(ConversationMessageSource.VOICE.name)
           .build()
       )
       trimSavedMessagesLocked()
       rollingContextSummary = buildRollingContextSummaryLocked()
+      sessionRevision++
     }
+    pendingConversationRewrite = null
     refreshConversationMessages()
     persistCurrentSession()
   }
@@ -1562,6 +1735,8 @@ class VoiceViewModel(
       .setVoiceEnglishDemonstrationRate(englishState.demonstrationRate)
       .setVoiceEnglishAttemptCount(englishState.attemptCount)
       .setVoiceContextSummary(rollingContextSummary)
+      .setVoiceSchemaVersion(VOICE_CONVERSATION_SCHEMA_VERSION)
+      .setVoiceRevision(sessionRevision)
       .addAllMessages(messages)
       .build()
     persistProtoSession(session)
@@ -1570,7 +1745,11 @@ class VoiceViewModel(
   private fun persistProtoSession(session: ChatSessionProto) {
     viewModelScope.launch(Dispatchers.IO) {
       sessionPersistenceMutex.withLock {
-        modelManagerViewModel.dataStoreRepository.saveVoiceSession(session)
+        val persisted = persistedRevisions[session.sessionId] ?: Long.MIN_VALUE
+        if (session.voiceRevision >= persisted) {
+          modelManagerViewModel.dataStoreRepository.saveVoiceSession(session)
+          persistedRevisions[session.sessionId] = session.voiceRevision
+        }
       }
       val savedSessions = modelManagerViewModel.dataStoreRepository.readVoiceSessions()
       withContext(Dispatchers.Main) { _sessions.value = savedSessions.map(::toSessionSummary) }
@@ -1632,6 +1811,13 @@ sealed class VoiceUiState {
   data class Loading(val message: String) : VoiceUiState()
   data class Error(val message: String) : VoiceUiState()
 }
+
+private data class PendingConversationRewrite(
+  val sessionId: String,
+  val originalMessages: List<ChatMessageProto>,
+  val originalRollingSummary: String,
+  val originalRuntimeHistoryStart: Int,
+)
 
 private data class TurnContext(
   val profile: ResponseDepthProfile,

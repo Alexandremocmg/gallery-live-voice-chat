@@ -4,8 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,17 +18,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,24 +45,35 @@ import com.google.ai.edge.gallery.ui.common.chat.MessageBodyText
 import com.google.ai.edge.gallery.voice.conversation.ConversationMessageSide
 import com.google.ai.edge.gallery.voice.conversation.ConversationMessageStatus
 import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessage
+import com.google.ai.edge.gallery.voice.conversation.ConversationMessageAction
+import com.google.ai.edge.gallery.voice.conversation.ConversationMessageActionContext
+import com.google.ai.edge.gallery.voice.conversation.ConversationMessageActionPolicy
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun VoiceConversationTimeline(
     messages: List<ConversationUiMessage>,
     onSpeakAgain: (ConversationUiMessage) -> Unit,
     onEditAndResend: (ConversationUiMessage, String) -> Unit,
     onRegenerate: (ConversationUiMessage) -> Unit,
+    onNotice: (String) -> Unit,
+    isConversationBusy: Boolean,
+    hasTextToSpeech: Boolean,
     modifier: Modifier = Modifier,
     listState: LazyListState? = null,
 ) {
     val state = listState ?: rememberLazyListState()
     val context = LocalContext.current
-    var selectedMessage by remember { mutableStateOf<ConversationUiMessage?>(null) }
-    var editingMessage by remember { mutableStateOf<ConversationUiMessage?>(null) }
-    var editDraft by remember { mutableStateOf("") }
+    var selectedMessageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingMessageId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editDraft by rememberSaveable { mutableStateOf("") }
+    val selectedMessage = messages.firstOrNull { it.id == selectedMessageId }
+    val editingMessage = messages.firstOrNull { it.id == editingMessageId }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+    LaunchedEffect(messages.lastOrNull()?.id) {
+        val wasNearEnd = state.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+            ?.let { it >= messages.lastIndex - 1 } ?: true
+        if (messages.isNotEmpty() && wasNearEnd) {
             state.animateScrollToItem(messages.lastIndex)
         }
     }
@@ -87,9 +103,12 @@ fun VoiceConversationTimeline(
                     color = background,
                     modifier = Modifier
                         .fillMaxWidth(0.88f)
-                        .clickable(enabled = message.status == ConversationMessageStatus.COMPLETE) {
-                            selectedMessage = message
-                        },
+                        .combinedClickable(
+                            enabled = message.status == ConversationMessageStatus.COMPLETE &&
+                                !isConversationBusy,
+                            onClick = {},
+                            onLongClick = { selectedMessageId = message.id },
+                        ),
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Text(
@@ -101,6 +120,16 @@ fun VoiceConversationTimeline(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (message.status == ConversationMessageStatus.COMPLETE &&
+                            !isConversationBusy
+                        ) {
+                            IconButton(
+                                onClick = { selectedMessageId = message.id },
+                                modifier = Modifier.align(Alignment.End),
+                            ) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Ações da mensagem")
+                            }
+                        }
                         if (message.attachmentLabels.isNotEmpty()) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -131,6 +160,13 @@ fun VoiceConversationTimeline(
                                 ),
                                 inProgress = message.status == ConversationMessageStatus.STREAMING,
                                 horizontalPadding = 0.dp,
+                                userTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                userLinkColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                onCopyClicked = { text ->
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Kabem Voice", text))
+                                    onNotice("Mensagem copiada")
+                                },
                             )
                         }
                         when (message.status) {
@@ -161,7 +197,22 @@ fun VoiceConversationTimeline(
     }
 
     selectedMessage?.let { message ->
-        ModalBottomSheet(onDismissRequest = { selectedMessage = null }) {
+        val associatedUserMessage = messages.takeWhile { it.id != message.id }
+            .lastOrNull { it.side == ConversationMessageSide.USER }
+        val actions = ConversationMessageActionPolicy.availableActions(
+            ConversationMessageActionContext(
+                message = message,
+                hasTextToSpeech = hasTextToSpeech,
+                hasAssociatedUserMessage = associatedUserMessage != null,
+                isConversationBusy = isConversationBusy,
+                isRewriteSafe = when (message.side) {
+                    ConversationMessageSide.USER -> message.attachmentLabels.isEmpty()
+                    ConversationMessageSide.ASSISTANT -> associatedUserMessage?.attachmentLabels?.isEmpty() == true
+                    ConversationMessageSide.SYSTEM -> false
+                },
+            )
+        )
+        ModalBottomSheet(onDismissRequest = { selectedMessageId = null }) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -182,67 +233,67 @@ fun VoiceConversationTimeline(
                     Button(
                         onClick = {
                             onEditAndResend(message, editDraft)
-                            editingMessage = null
-                            selectedMessage = null
+                            editingMessageId = null
+                            selectedMessageId = null
                         },
                         enabled = editDraft.trim().isNotEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Enviar edição") }
                     TextButton(
-                        onClick = { editingMessage = null },
+                        onClick = { editingMessageId = null },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Cancelar edição") }
                 } else {
-                    if (message.side == ConversationMessageSide.USER && message.canEdit) {
+                    if (ConversationMessageAction.EDIT_AND_RESEND in actions) {
                         TextButton(
                             onClick = {
-                                editingMessage = message
+                                editingMessageId = message.id
                                 editDraft = message.text
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Editar e reenviar") }
                     }
-                    if (message.side == ConversationMessageSide.ASSISTANT) {
+                    if (ConversationMessageAction.REGENERATE in actions) {
                         TextButton(
                             onClick = {
                                 onRegenerate(message)
-                                selectedMessage = null
+                                selectedMessageId = null
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Regenerar resposta") }
                     }
                 }
-                Button(
+                if (ConversationMessageAction.COPY in actions) Button(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("Kabem Voice", message.text))
-                        Toast.makeText(context, "Mensagem copiada", Toast.LENGTH_SHORT).show()
-                        selectedMessage = null
+                        onNotice("Mensagem copiada")
+                        selectedMessageId = null
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Copiar") }
-                TextButton(
+                if (ConversationMessageAction.SHARE in actions) TextButton(
                     onClick = {
                         val sendIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, message.text)
                         }
                         context.startActivity(Intent.createChooser(sendIntent, "Compartilhar mensagem"))
-                        selectedMessage = null
+                        selectedMessageId = null
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Compartilhar") }
-                if (message.side == ConversationMessageSide.ASSISTANT) {
+                if (ConversationMessageAction.SPEAK_AGAIN in actions) {
                     TextButton(
                         onClick = {
                             onSpeakAgain(message)
-                            selectedMessage = null
+                            selectedMessageId = null
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Ouvir novamente") }
                 }
                 TextButton(
-                    onClick = { selectedMessage = null },
+                    onClick = { selectedMessageId = null },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Fechar") }
             }

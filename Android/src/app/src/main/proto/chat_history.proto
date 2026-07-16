@@ -57,6 +57,15 @@ message ChatMessageProto {
   string voice_response_profile = 11;
   // PDF pages used as context for this voice turn.
   repeated int32 pdf_page_numbers = 12;
+  // Stable identity used by conversation actions and Compose item keys.
+  string message_id = 13;
+  // Creation timestamp for deterministic ordering and legacy migration.
+  int64 created_at_ms = 14;
+  // Input origin for Kabem Voice messages: VOICE, TEXT, or SYSTEM.
+  string voice_message_source = 15;
+  // Conservative markers used to prevent unsafe rewrite when media payload cannot be restored.
+  bool voice_had_images = 16;
+  bool voice_had_audio = 17;
 }
 
 // Represents an audio recording associated with a chat session message.
@@ -101,4 +110,8 @@ message ChatSessionProto {
   int32 voice_english_attempt_count = 18;
   // Compact deterministic summary used only when conversation history is restored.
   string voice_context_summary = 19;
+  // Schema used by Kabem Voice for stable message identity and transactions.
+  int32 voice_schema_version = 20;
+  // Monotonic revision. Older snapshots must never overwrite newer ones.
+  int64 voice_revision = 21;
 }

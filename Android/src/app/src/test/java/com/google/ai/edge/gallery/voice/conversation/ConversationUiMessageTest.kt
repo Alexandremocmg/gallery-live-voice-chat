@@ -27,7 +27,7 @@ class ConversationUiMessageTest {
     assertEquals(listOf("Olá", "Como posso ajudar?"), messages.map { it.text })
     assertEquals(ConversationMessageSide.USER, messages[0].side)
     assertEquals(ConversationMessageSide.ASSISTANT, messages[1].side)
-    assertEquals(listOf(0, 1), messages.map { it.position })
+    assertEquals(listOf("legacy-0", "legacy-1"), messages.map { it.id })
   }
 
   @Test
@@ -101,5 +101,22 @@ class ConversationUiMessageTest {
       ).single()
 
     assertFalse(message.isMarkdown)
+  }
+
+  @Test
+  fun `preserves stable id and typed source`() {
+    val message =
+      ConversationUiMessageMapper.fromProto(
+        listOf(
+          ChatMessageProto.newBuilder()
+            .setMessageId("message-123")
+            .setVoiceMessageSource(ConversationMessageSource.TEXT.name)
+            .setSide(ChatSideProto.CHAT_SIDE_USER)
+            .build()
+        )
+      ).single()
+
+    assertEquals("message-123", message.id)
+    assertEquals(ConversationMessageSource.TEXT, message.source)
   }
 }

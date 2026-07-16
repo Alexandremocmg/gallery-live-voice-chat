@@ -1,6 +1,7 @@
 package com.google.ai.edge.gallery.voice.conversation
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,7 +12,7 @@ class ConversationMessageActionPolicyTest {
       side = ConversationMessageSide.USER,
       text = "Pergunta",
       status = ConversationMessageStatus.COMPLETE,
-      position = 0,
+      createdAtMs = 1,
       source = ConversationMessageSource.VOICE,
       canEdit = true,
     )
@@ -22,7 +23,7 @@ class ConversationMessageActionPolicyTest {
       side = ConversationMessageSide.ASSISTANT,
       text = "Resposta",
       status = ConversationMessageStatus.COMPLETE,
-      position = 1,
+      createdAtMs = 2,
       source = ConversationMessageSource.VOICE,
       canEdit = false,
     )
@@ -37,7 +38,6 @@ class ConversationMessageActionPolicyTest {
     assertEquals(
       setOf(
         ConversationMessageAction.COPY,
-        ConversationMessageAction.SELECT,
         ConversationMessageAction.SHARE,
         ConversationMessageAction.EDIT_AND_RESEND,
       ),
@@ -58,7 +58,7 @@ class ConversationMessageActionPolicyTest {
 
     assertTrue(ConversationMessageAction.REGENERATE in actions)
     assertTrue(ConversationMessageAction.SPEAK_AGAIN in actions)
-    assertTrue(ConversationMessageAction.SAVE_MEMORY in actions)
+
   }
 
   @Test
@@ -70,5 +70,16 @@ class ConversationMessageActionPolicyTest {
       )
 
     assertTrue(actions.isEmpty())
+  }
+
+  @Test
+  fun `unsafe multimodal rewrite is not offered`() {
+    val user = userMessage.copy(attachmentLabels = listOf("Imagem 1"))
+    val actions = ConversationMessageActionPolicy.availableActions(
+      ConversationMessageActionContext(message = user, isRewriteSafe = false)
+    )
+
+    assertFalse(ConversationMessageAction.EDIT_AND_RESEND in actions)
+    assertTrue(ConversationMessageAction.COPY in actions)
   }
 }

@@ -210,6 +210,10 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val pdfLoading by viewModel.pdfLoading.collectAsState()
     val pdfError by viewModel.pdfError.collectAsState()
     val pendingMemory by viewModel.pendingMemory.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(viewModel) {
+        viewModel.actionNotices.collect { snackbarHostState.showSnackbar(it) }
+    }
 
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia()
@@ -510,8 +514,11 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 VoiceConversationTimeline(
                     messages = conversationMessages,
                     onSpeakAgain = { message -> viewModel.speakMessage(message.text) },
-                    onEditAndResend = { message, text -> viewModel.editAndResendMessage(message.position, text) },
-                    onRegenerate = { message -> viewModel.regenerateMessage(message.position) },
+                    onEditAndResend = { message, text -> viewModel.editAndResendMessage(message.id, text) },
+                    onRegenerate = { message -> viewModel.regenerateMessage(message.id) },
+                    onNotice = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+                    isConversationBusy = uiState is VoiceUiState.Generating,
+                    hasTextToSpeech = speechCapabilities.values.any { it.localTtsAvailable },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             } else if (recognizedText.isNotBlank()) {
@@ -561,6 +568,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp)
+                .imePadding()
         ) {
             // Ripple animation
             if (uiState is VoiceUiState.Listening || uiState is VoiceUiState.Speaking) {
@@ -578,10 +586,17 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     text = draftText,
                     onTextChanged = { draftText = it },
                     onSend = {
-                        if (isReviewingTranscript) viewModel.submitReviewedTranscript(draftText)
-                        else viewModel.submitText(draftText)
-                        draftText = ""
-                        showTextInput = false
+                        val accepted = if (isReviewingTranscript) {
+                            viewModel.submitReviewedTranscript(draftText)
+                        } else {
+                            viewModel.submitText(draftText)
+                        }
+                        if (accepted) {
+                            draftText = ""
+                            showTextInput = false
+                        } else {
+                            scope.launch { snackbarHostState.showSnackbar("A mensagem não foi aceita agora.") }
+                        }
                     },
                     onCancel = {
                         if (isReviewingTranscript) viewModel.discardTranscript()
@@ -687,8 +702,13 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     }
                 }
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
     }
+}
 }
 
 @Composable

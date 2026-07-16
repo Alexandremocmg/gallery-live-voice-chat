@@ -28,7 +28,7 @@ data class ConversationUiMessage(
   val side: ConversationMessageSide,
   val text: String,
   val status: ConversationMessageStatus,
-  val position: Int,
+  val createdAtMs: Long,
   val source: ConversationMessageSource,
   val canEdit: Boolean,
   val isMarkdown: Boolean = true,
@@ -52,24 +52,28 @@ object ConversationUiMessageMapper {
         else -> ConversationMessageStatus.COMPLETE
       }
     return ConversationUiMessage(
-      id = "voice-message-$position",
+      id = message.messageId.ifBlank { "legacy-$position" },
       side = side,
       text = message.content,
       status = status,
-      position = position,
-      source = if (side == ConversationMessageSide.SYSTEM) {
-        ConversationMessageSource.SYSTEM
-      } else {
-        ConversationMessageSource.VOICE
+      createdAtMs = message.createdAtMs,
+      source = when {
+        side == ConversationMessageSide.SYSTEM -> ConversationMessageSource.SYSTEM
+        message.voiceMessageSource == ConversationMessageSource.TEXT.name -> ConversationMessageSource.TEXT
+        else -> ConversationMessageSource.VOICE
       },
       canEdit = side == ConversationMessageSide.USER && status == ConversationMessageStatus.COMPLETE,
       isMarkdown = message.isMarkdown,
       attachmentLabels = buildList {
         if (message.imageFilePathsCount > 0) {
           add(if (message.imageFilePathsCount == 1) "1 imagem" else "${message.imageFilePathsCount} imagens")
+        } else if (message.voiceHadImages) {
+          add("Imagem usada no turno")
         }
         if (message.audioClipsCount > 0) {
           add(if (message.audioClipsCount == 1) "1 áudio" else "${message.audioClipsCount} áudios")
+        } else if (message.voiceHadAudio) {
+          add("Áudio usado no turno")
         }
         if (message.pdfPageNumbersCount > 0) {
           add("PDF · páginas ${message.pdfPageNumbersList.joinToString(", ")}")
@@ -79,5 +83,5 @@ object ConversationUiMessageMapper {
   }
 
   fun fromProto(messages: List<ChatMessageProto>): List<ConversationUiMessage> =
-    messages.mapIndexed(::fromProto)
+    messages.mapIndexed { position, message -> fromProto(message, position) }
 }

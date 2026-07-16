@@ -12,9 +12,10 @@ enum class ConversationMessageAction {
 
 data class ConversationMessageActionContext(
   val message: ConversationUiMessage,
-  val hasTextToSpeech: Boolean,
+  val hasTextToSpeech: Boolean = false,
   val hasAssociatedUserMessage: Boolean = false,
   val isConversationBusy: Boolean = false,
+  val isRewriteSafe: Boolean = true,
 )
 
 object ConversationMessageActionPolicy {
@@ -29,15 +30,16 @@ object ConversationMessageActionPolicy {
 
     return buildSet {
       add(ConversationMessageAction.COPY)
-      add(ConversationMessageAction.SELECT)
       add(ConversationMessageAction.SHARE)
-      if (message.side == ConversationMessageSide.USER && message.canEdit) {
+      if (message.side == ConversationMessageSide.USER && message.canEdit && context.isRewriteSafe) {
         add(ConversationMessageAction.EDIT_AND_RESEND)
       }
       if (message.side == ConversationMessageSide.ASSISTANT) {
-        if (context.hasAssociatedUserMessage) add(ConversationMessageAction.REGENERATE)
+        if (context.hasAssociatedUserMessage && context.isRewriteSafe) {
+          add(ConversationMessageAction.REGENERATE)
+        }
         if (context.hasTextToSpeech) add(ConversationMessageAction.SPEAK_AGAIN)
-        add(ConversationMessageAction.SAVE_MEMORY)
+
       }
     }
   }
