@@ -66,6 +66,8 @@ import com.google.ai.edge.gallery.voice.intelligence.supportsThinkingFor
 import com.google.ai.edge.gallery.voice.intelligence.DeviceCapabilityProfileProvider
 import com.google.ai.edge.gallery.voice.skills.KabemSkillEngine
 import com.google.ai.edge.gallery.voice.skills.KabemSkillManifest
+import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessage
+import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessageMapper
 import com.google.ai.edge.gallery.voice.conversation.VoiceConversationPhase
 import com.google.ai.edge.gallery.voice.conversation.VoiceConversationStateMachine
 import com.google.ai.edge.litertlm.Contents
@@ -110,6 +112,9 @@ class VoiceViewModel(
 
   private val _lastResponse = MutableStateFlow("")
   val lastResponse: StateFlow<String> = _lastResponse.asStateFlow()
+
+  private val _conversationMessages = MutableStateFlow<List<ConversationUiMessage>>(emptyList())
+  val conversationMessages: StateFlow<List<ConversationUiMessage>> = _conversationMessages.asStateFlow()
 
   private val _responseProfile = MutableStateFlow(ResponseDepthProfile.FLASH)
   val responseProfile: StateFlow<ResponseDepthProfile> = _responseProfile.asStateFlow()
@@ -498,6 +503,7 @@ class VoiceViewModel(
     _activeSessionTitle.value = "Nova sessao"
     sessionCreatedAtMs = 0L
     synchronized(sessionMessagesLock) { sessionMessages.clear() }
+    _conversationMessages.value = emptyList()
     activePdfUri = null
     activePdfName = null
     _recognizedText.value = ""
@@ -1306,9 +1312,12 @@ class VoiceViewModel(
     _activeSessionId.value = session.sessionId
     _activeSessionTitle.value = session.title.ifBlank { "Nova sessao" }
     sessionCreatedAtMs = session.timestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()
-    val (lastUserMessage, lastAssistantMessage) = synchronized(sessionMessagesLock) {
+    synchronized(sessionMessagesLock) {
       sessionMessages.clear()
       sessionMessages.addAll(session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES))
+    }
+    refreshConversationMessages()
+    val (lastUserMessage, lastAssistantMessage) = synchronized(sessionMessagesLock) {
       sessionMessages.lastOrNull { it.side == ChatSideProto.CHAT_SIDE_USER } to
         sessionMessages.lastOrNull { it.side == ChatSideProto.CHAT_SIDE_MODEL }
     }
@@ -1372,6 +1381,7 @@ class VoiceViewModel(
       )
       trimSavedMessagesLocked()
     }
+    refreshConversationMessages()
     persistCurrentSession()
   }
 
@@ -1389,7 +1399,13 @@ class VoiceViewModel(
       trimSavedMessagesLocked()
       rollingContextSummary = buildRollingContextSummaryLocked()
     }
+    refreshConversationMessages()
     persistCurrentSession()
+  }
+
+  private fun refreshConversationMessages() {
+    val messages = synchronized(sessionMessagesLock) { sessionMessages.toList() }
+    _conversationMessages.value = ConversationUiMessageMapper.fromProto(messages)
   }
 
   private fun trimSavedMessagesLocked() {

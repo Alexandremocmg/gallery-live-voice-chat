@@ -193,6 +193,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val recognizedText by viewModel.recognizedText.collectAsState()
     val lastResponse by viewModel.lastResponse.collectAsState()
+    val conversationMessages by viewModel.conversationMessages.collectAsState()
     val responseProfile by viewModel.responseProfile.collectAsState()
     val cognitiveMode by viewModel.cognitiveMode.collectAsState()
     val activeSkill by viewModel.activeSkill.collectAsState()
@@ -498,34 +499,39 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 }
             }
 
-            if (recognizedText.isNotBlank()) {
+            if (conversationMessages.isNotEmpty()) {
+                VoiceConversationTimeline(
+                    messages = conversationMessages,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            } else if (recognizedText.isNotBlank()) {
                 Text(
                     text = "Você disse:",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = recognizedText,
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
 
-            if (lastResponse.isNotBlank() && uiState !is VoiceUiState.Generating) {
+            if (conversationMessages.isEmpty() && lastResponse.isNotBlank() && uiState !is VoiceUiState.Generating) {
                 Spacer(modifier = Modifier.height(32.dp))
                 Text(
                     text = "Kabem respondeu:",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.secondary,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = lastResponse,
                     style = MaterialTheme.typography.bodyLarge,
                     textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
 

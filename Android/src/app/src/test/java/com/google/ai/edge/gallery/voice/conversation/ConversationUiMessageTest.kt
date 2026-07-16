@@ -1,0 +1,72 @@
+package com.google.ai.edge.gallery.voice.conversation
+
+import com.google.ai.edge.gallery.proto.ChatMessageProto
+import com.google.ai.edge.gallery.proto.ChatSideProto
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ConversationUiMessageTest {
+  @Test
+  fun `maps user and assistant messages in order`() {
+    val messages =
+      ConversationUiMessageMapper.fromProto(
+        listOf(
+          ChatMessageProto.newBuilder()
+            .setSide(ChatSideProto.CHAT_SIDE_USER)
+            .setContent("Olá")
+            .build(),
+          ChatMessageProto.newBuilder()
+            .setSide(ChatSideProto.CHAT_SIDE_MODEL)
+            .setContent("Como posso ajudar?")
+            .build(),
+        )
+      )
+
+    assertEquals(listOf("Olá", "Como posso ajudar?"), messages.map { it.text })
+    assertEquals(ConversationMessageSide.USER, messages[0].side)
+    assertEquals(ConversationMessageSide.ASSISTANT, messages[1].side)
+    assertEquals(listOf(0, 1), messages.map { it.position })
+  }
+
+  @Test
+  fun `only complete user messages can be edited`() {
+    val messages =
+      ConversationUiMessageMapper.fromProto(
+        listOf(
+          ChatMessageProto.newBuilder()
+            .setSide(ChatSideProto.CHAT_SIDE_USER)
+            .setContent("Pergunta")
+            .build(),
+          ChatMessageProto.newBuilder()
+            .setSide(ChatSideProto.CHAT_SIDE_MODEL)
+            .setContent("Resposta")
+            .setInProgress(true)
+            .build(),
+        )
+      )
+
+    assertTrue(messages[0].canEdit)
+    assertFalse(messages[1].canEdit)
+    assertEquals(ConversationMessageStatus.STREAMING, messages[1].status)
+  }
+
+  @Test
+  fun `unknown side becomes a system message`() {
+    val message =
+      ConversationUiMessageMapper.fromProto(
+        listOf(
+          ChatMessageProto.newBuilder()
+            .setContent("Aviso")
+            .setMessageType("ERROR")
+            .build()
+        )
+      ).single()
+
+    assertEquals(ConversationMessageSide.SYSTEM, message.side)
+    assertEquals(ConversationMessageSource.SYSTEM, message.source)
+    assertEquals(ConversationMessageStatus.ERROR, message.status)
+    assertFalse(message.canEdit)
+  }
+}
