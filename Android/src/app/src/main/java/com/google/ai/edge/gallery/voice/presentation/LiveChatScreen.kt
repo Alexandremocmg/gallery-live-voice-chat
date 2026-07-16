@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -223,6 +224,12 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         }
     }
     var showCameraPreview by remember { mutableStateOf(false) }
+    var showTextInput by remember { mutableStateOf(false) }
+    var draftText by remember { mutableStateOf("") }
+    val isReviewingTranscript = uiState is VoiceUiState.ReviewingTranscript
+    LaunchedEffect(isReviewingTranscript) {
+        if (isReviewingTranscript) draftText = recognizedText
+    }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -563,10 +570,32 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             else
                 MaterialTheme.colorScheme.primary
 
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
+            if (showTextInput || isReviewingTranscript) {
+                ConversationInputBar(
+                    text = draftText,
+                    onTextChanged = { draftText = it },
+                    onSend = {
+                        if (isReviewingTranscript) viewModel.submitReviewedTranscript(draftText)
+                        else viewModel.submitText(draftText)
+                        draftText = ""
+                        showTextInput = false
+                    },
+                    onCancel = {
+                        if (isReviewingTranscript) viewModel.discardTranscript()
+                        draftText = ""
+                        showTextInput = false
+                    },
+                    onSwitchToVoice = {
+                        draftText = ""
+                        showTextInput = false
+                    },
+                    reviewMode = isReviewingTranscript,
+                )
+            } else {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                 Box(
                     modifier = Modifier
                         .size(100.dp)
@@ -585,6 +614,20 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            viewModel.prepareForMediaAttachment()
+                            showTextInput = true
+                        },
+                        enabled = uiState is VoiceUiState.Idle || uiState is VoiceUiState.Listening,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Keyboard,
+                            contentDescription = "Usar teclado",
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
                     FilledTonalIconButton(
                         onClick = {
                             viewModel.prepareForMediaAttachment()

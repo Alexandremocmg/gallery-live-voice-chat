@@ -302,11 +302,10 @@ class VoiceViewModel(
       voiceChatManager.speechState.collectLatest { state ->
         when (state) {
           is SpeechState.ResultReady -> {
-            _recognizedText.value = state.text
+            _recognizedText.value = state.result.text
             _activeSpeechLocale.value = state.result.locale
-            _uiState.value = VoiceUiState.Generating
-            conversationStateMachine.transitionTo(VoiceConversationPhase.THINKING)
-            generateResponse(state.result)
+            _uiState.value = VoiceUiState.ReviewingTranscript(state.result.text)
+            conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
           }
           is SpeechState.Listening -> {
             _uiState.value = VoiceUiState.Listening
@@ -428,6 +427,32 @@ class VoiceViewModel(
 
   fun requestEnglishLanguagePack() {
     voiceChatManager.requestLanguageModelDownload(englishState.dialect)
+  }
+
+  fun submitText(text: String) {
+    val normalized = text.trim()
+    if (normalized.isBlank() || _uiState.value is VoiceUiState.Generating) return
+    _recognizedText.value = normalized
+    _uiState.value = VoiceUiState.Generating
+    conversationStateMachine.transitionTo(VoiceConversationPhase.THINKING)
+    generateResponse(
+      SpeechRecognitionResult(
+        text = normalized,
+        locale = _activeSpeechLocale.value,
+        backend = RecognitionBackend.ANDROID_SYSTEM,
+      )
+    )
+  }
+
+  fun submitReviewedTranscript(text: String) {
+    submitText(text)
+  }
+
+  fun discardTranscript() {
+    _recognizedText.value = ""
+    if (_uiState.value is VoiceUiState.ReviewingTranscript) {
+      _uiState.value = VoiceUiState.Idle
+    }
   }
 
   fun toggleListening() {
@@ -1510,6 +1535,7 @@ sealed class VoiceUiState {
   object Listening : VoiceUiState()
   object Generating : VoiceUiState()
   object Speaking : VoiceUiState()
+  data class ReviewingTranscript(val text: String) : VoiceUiState()
   object NoModel : VoiceUiState()
   data class Loading(val message: String) : VoiceUiState()
   data class Error(val message: String) : VoiceUiState()
