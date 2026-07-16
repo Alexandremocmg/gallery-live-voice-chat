@@ -448,6 +448,12 @@ class VoiceViewModel(
     submitText(text)
   }
 
+  fun speakMessage(text: String) {
+    if (text.isBlank()) return
+    voiceChatManager.stopSpeaking()
+    voiceChatManager.speak(text)
+  }
+
   fun discardTranscript() {
     _recognizedText.value = ""
     if (_uiState.value is VoiceUiState.ReviewingTranscript) {
