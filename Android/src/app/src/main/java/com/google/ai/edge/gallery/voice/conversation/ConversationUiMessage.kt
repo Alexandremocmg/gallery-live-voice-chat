@@ -31,6 +31,7 @@ data class ConversationUiMessage(
   val position: Int,
   val source: ConversationMessageSource,
   val canEdit: Boolean,
+  val isMarkdown: Boolean = true,
 )
 
 /** Maps the persisted voice message format to the UI contract. */
@@ -61,6 +62,7 @@ object ConversationUiMessageMapper {
         ConversationMessageSource.VOICE
       },
       canEdit = side == ConversationMessageSide.USER && status == ConversationMessageStatus.COMPLETE,
+      isMarkdown = message.isMarkdown,
     )
   }
 

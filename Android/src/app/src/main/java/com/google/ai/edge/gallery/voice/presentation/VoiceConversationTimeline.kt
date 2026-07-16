@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -34,6 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.google.ai.edge.gallery.ui.common.chat.ChatMessageText
+import com.google.ai.edge.gallery.ui.common.chat.ChatSide
+import com.google.ai.edge.gallery.ui.common.chat.MessageBodyText
 import com.google.ai.edge.gallery.voice.conversation.ConversationMessageSide
 import com.google.ai.edge.gallery.voice.conversation.ConversationMessageStatus
 import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessage
@@ -98,11 +100,22 @@ fun VoiceConversationTimeline(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        SelectionContainer {
+                        if (isSystem) {
                             Text(
                                 text = message.text,
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
+                            )
+                        } else {
+                            MessageBodyText(
+                                message = ChatMessageText(
+                                    content = message.text,
+                                    side = if (isUser) ChatSide.USER else ChatSide.AGENT,
+                                    isMarkdown = message.isMarkdown,
+                                ),
+                                inProgress = message.status == ConversationMessageStatus.STREAMING,
+                                horizontalPadding = 0.dp,
                             )
                         }
                         when (message.status) {
