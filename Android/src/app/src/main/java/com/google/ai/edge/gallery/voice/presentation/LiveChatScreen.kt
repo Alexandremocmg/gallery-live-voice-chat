@@ -52,6 +52,7 @@ import com.google.ai.edge.gallery.common.decodeSampledBitmapFromUri
 import com.google.ai.edge.gallery.voice.data.MemoryCandidate
 import com.google.ai.edge.gallery.voice.data.MemoryCategory
 import com.google.ai.edge.gallery.voice.data.MemoryItem
+import com.google.ai.edge.gallery.voice.data.ResponseDepthProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope

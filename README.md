@@ -70,6 +70,13 @@ For users without Google Play access, install the apk from the [**latest release
 *   **Componentes:** TopBar, PromoScreen e TemsOfUse reestilizados com a marca Kabem Voice.
 *   **Live Voice:** controles de galeria/câmera espaçados, animação de waveform e chip de perfil de resposta.
 
+## 🧠 Professor Adaptativo (Adaptive Teacher)
+
+*   **Detecção de Intenção:** Identifica quando o usuário deseja aprender e ativa o modo pedagógico automaticamente.
+*   **Ensino em Blocos:** Explicações curtas seguidas de verificações de entendimento.
+*   **Sinais de Feedback:** Reconhece respostas como "entendi", "não entendi", "dê um exemplo" e ajusta a estratégia de ensino (Socratic scaffolding).
+*   **Avaliação Formativa:** Avalia tentativas do aluno com correções construtivas, sem rotular o usuário.
+
 ## 🛠️ Technology Highlights
 
 *   **Google AI Edge:** Core APIs e ferramentas para ML on-device.
