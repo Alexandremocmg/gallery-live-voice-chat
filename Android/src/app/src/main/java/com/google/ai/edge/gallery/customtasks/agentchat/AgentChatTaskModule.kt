@@ -190,6 +190,9 @@ class AgentChatTask @Inject constructor() : CustomTask {
   @Composable
   override fun MainScreen(data: Any) {
     val myData = data as CustomTaskDataForBuiltinTask
+    agentTools.connectivityModeProvider = {
+      myData.modelManagerViewModel.readConnectivityMode()
+    }
     AgentChatScreen(
       task = task,
       modelManagerViewModel = myData.modelManagerViewModel,

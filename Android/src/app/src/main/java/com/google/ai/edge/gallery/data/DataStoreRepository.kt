@@ -33,6 +33,7 @@ import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.proto.UserData
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 
 const val VOICE_SESSION_TASK_ID = "live_voice"
 
@@ -50,10 +51,7 @@ interface DataStoreRepository {
    * Saves the user's preference for whether Firebase Analytics data collection is enabled (`true`)
    * or disabled (`false`).
    *
-   * Note that this preference is stored internally on the Settings proto as
-   * `disable_firebase_analytics = !enabled`. This ensures that when the proto field is unset (its
-   * default value being `false`), data collection remains enabled by default across new installs
-   * and upgrades until explicitly toggled off by the user.
+   * Private mode always overrides this preference and keeps collection disabled.
    *
    * @param enabled `true` to enable Firebase Analytics data collection; `false` to disable it.
    */
@@ -62,14 +60,25 @@ interface DataStoreRepository {
   /**
    * Reads that current setting for whether Firebase Analytics data collection is enabled.
    *
-   * @return `true` if analytics is enabled or has not been explicitly disabled by the user; `false`
-   *   otherwise.
+   * @return `true` only in connected mode when collection was explicitly enabled.
    */
   fun readFirebaseAnalytics(): Boolean
 
   fun saveTtsVoiceMode(mode: TtsVoiceMode)
 
   fun readTtsVoiceMode(): TtsVoiceMode
+
+  fun saveEnglishDialect(dialect: EnglishDialect)
+
+  fun readEnglishDialect(): EnglishDialect
+
+  fun saveConnectivityMode(mode: ConnectivityMode)
+
+  fun readConnectivityMode(): ConnectivityMode
+
+  fun saveSelectedKabemSkillIds(skillIds: Set<String>)
+
+  fun readSelectedKabemSkillIds(): Set<String>
 
   fun readVoiceSessions(): List<ChatSessionProto>
 
@@ -198,25 +207,26 @@ class DefaultDataStoreRepository(
   }
 
   /**
-   * Persists the inverted value (`!enabled`) into `settings.disableFirebaseAnalytics` within proto
-   * DataStore.
+   * Persists the preference while enforcing private mode as a hard privacy boundary.
    */
   override fun saveFirebaseAnalytics(enabled: Boolean) {
     runBlocking {
       dataStore.updateData { settings ->
-        settings.toBuilder().setDisableFirebaseAnalytics(!enabled).build()
+        val privateMode =
+          ConnectivityMode.fromStorage(settings.connectivityMode) == ConnectivityMode.PRIVATE_OFFLINE
+        settings.toBuilder().setDisableFirebaseAnalytics(privateMode || !enabled).build()
       }
     }
   }
 
   /**
-   * Reads `settings.disableFirebaseAnalytics` from proto DataStore and returns the inverted value
-   * so that `false` (default uninitialized value) evaluates to `true` (enabled).
+   * Analytics is never reported as enabled while private mode is active.
    */
   override fun readFirebaseAnalytics(): Boolean {
     return runBlocking {
       val settings = dataStore.data.first()
-      !settings.disableFirebaseAnalytics
+      ConnectivityMode.fromStorage(settings.connectivityMode) == ConnectivityMode.CONNECTED &&
+        !settings.disableFirebaseAnalytics
     }
   }
 
@@ -231,6 +241,64 @@ class DefaultDataStoreRepository(
   override fun readTtsVoiceMode(): TtsVoiceMode {
     return runBlocking {
       TtsVoiceMode.fromStorage(dataStore.data.first().ttsVoiceMode)
+    }
+  }
+
+  override fun saveEnglishDialect(dialect: EnglishDialect) {
+    runBlocking {
+      dataStore.updateData { settings ->
+        settings.toBuilder().setEnglishDialect(dialect.storageValue).build()
+      }
+    }
+  }
+
+  override fun readEnglishDialect(): EnglishDialect {
+    return runBlocking {
+      EnglishDialect.fromStorage(dataStore.data.first().englishDialect)
+    }
+  }
+
+  override fun saveConnectivityMode(mode: ConnectivityMode) {
+    runBlocking {
+      dataStore.updateData { settings ->
+        settings
+          .toBuilder()
+          .setConnectivityMode(mode.storageValue)
+          .setDisableFirebaseAnalytics(
+            if (mode == ConnectivityMode.PRIVATE_OFFLINE) true else settings.disableFirebaseAnalytics
+          )
+          .build()
+      }
+    }
+  }
+
+  override fun readConnectivityMode(): ConnectivityMode {
+    return runBlocking {
+      ConnectivityMode.fromStorage(dataStore.data.first().connectivityMode)
+    }
+  }
+
+  override fun saveSelectedKabemSkillIds(skillIds: Set<String>) {
+    runBlocking {
+      dataStore.updateData { settings ->
+        settings
+          .toBuilder()
+          .clearSelectedKabemSkillIds()
+          .addAllSelectedKabemSkillIds(skillIds.sorted())
+          .setKabemSkillsConfigured(true)
+          .build()
+      }
+    }
+  }
+
+  override fun readSelectedKabemSkillIds(): Set<String> {
+    return runBlocking {
+      val settings = dataStore.data.first()
+      if (settings.kabemSkillsConfigured) {
+        settings.selectedKabemSkillIdsList.toSet()
+      } else {
+        com.google.ai.edge.gallery.voice.skills.KabemBuiltInSkills.all.map { it.id }.toSet()
+      }
     }
   }
 

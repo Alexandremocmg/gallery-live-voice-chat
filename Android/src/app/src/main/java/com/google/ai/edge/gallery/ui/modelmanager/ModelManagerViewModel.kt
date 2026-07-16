@@ -645,6 +645,33 @@ constructor(
     dataStoreRepository.saveTtsVoiceMode(mode)
   }
 
+  fun readEnglishDialect(): com.google.ai.edge.gallery.data.EnglishDialect {
+    return dataStoreRepository.readEnglishDialect()
+  }
+
+  fun saveEnglishDialect(dialect: com.google.ai.edge.gallery.data.EnglishDialect) {
+    dataStoreRepository.saveEnglishDialect(dialect)
+  }
+
+  fun readConnectivityMode(): com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode {
+    return dataStoreRepository.readConnectivityMode()
+  }
+
+  fun saveConnectivityMode(mode: com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode) {
+    dataStoreRepository.saveConnectivityMode(mode)
+    if (mode == com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode.PRIVATE_OFFLINE) {
+      saveFirebaseAnalytics(false)
+    }
+  }
+
+  fun readSelectedKabemSkillIds(): Set<String> {
+    return dataStoreRepository.readSelectedKabemSkillIds()
+  }
+
+  fun saveSelectedKabemSkillIds(skillIds: Set<String>) {
+    dataStoreRepository.saveSelectedKabemSkillIds(skillIds)
+  }
+
   fun getModelUrlResponse(model: Model, accessToken: String? = null): Int {
     try {
       val url = URL(model.url)

@@ -86,6 +86,11 @@ message Settings {
   repeated string viewed_promo_id = 10;
   bool disable_firebase_analytics = 11;
   string tts_voice_mode = 12;
+  string english_dialect = 13;
+  // PRIVATE_OFFLINE by default; CONNECTED must be selected explicitly.
+  string connectivity_mode = 14;
+  repeated string selected_kabem_skill_ids = 15;
+  bool kabem_skills_configured = 16;
 }
 
 message McpAuth {

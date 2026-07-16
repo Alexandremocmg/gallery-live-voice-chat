@@ -37,6 +37,7 @@ import com.google.ai.edge.gallery.common.SkillProgressAgentAction
 import com.google.ai.edge.gallery.common.convertStringToJsonObject
 import com.google.ai.edge.gallery.firebaseAnalytics
 import com.google.ai.edge.gallery.proto.Skill
+import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 import com.google.ai.edge.litertlm.ToolSet
@@ -61,6 +62,7 @@ interface AgentTools : ToolSet {
   var skillManagerViewModel: SkillManagerViewModel
   var mcpManagerViewModel: McpManagerViewModel
   var taskId: String
+  var connectivityModeProvider: () -> ConnectivityMode
   val actionChannel: ReceiveChannel<AgentAction>
   var resultImageToShow: CallJsSkillResultImage?
   var resultWebviewToShow: CallJsSkillResultWebview?
@@ -107,6 +109,7 @@ open class AgentToolsImpl : AgentTools {
   override lateinit var skillManagerViewModel: SkillManagerViewModel
   override lateinit var mcpManagerViewModel: McpManagerViewModel
   override lateinit var taskId: String
+  override var connectivityModeProvider: () -> ConnectivityMode = { ConnectivityMode.PRIVATE_OFFLINE }
 
   private val _actionChannel = Channel<AgentAction>(Channel.UNLIMITED)
   override val actionChannel: ReceiveChannel<AgentAction> = _actionChannel
@@ -156,6 +159,12 @@ open class AgentToolsImpl : AgentTools {
     @ToolParam(description = "The name of the tool to run.") toolName: String,
     @ToolParam(description = "The parameters passed to tool as input") input: String,
   ): Map<String, String> {
+    if (connectivityModeProvider() != ConnectivityMode.CONNECTED) {
+      return mapOf(
+        "error" to "MCP bloqueado: ative explicitamente o modo Conectado nas preferencias.",
+        "status" to "blocked_private_mode",
+      )
+    }
     Log.d(TAG, "Run MCP tool:\n- name: $toolName\n- input: $input")
 
     return runBlocking(Dispatchers.IO) {
@@ -284,6 +293,12 @@ open class AgentToolsImpl : AgentTools {
     )
     data: String,
   ): Map<String, Any> {
+    if (connectivityModeProvider() != ConnectivityMode.CONNECTED) {
+      return mapOf(
+        "error" to "Skill JavaScript bloqueada no modo Privado.",
+        "status" to "blocked_private_mode",
+      )
+    }
     return runBlocking(Dispatchers.Default) {
       Log.d(
         TAG,

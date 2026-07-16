@@ -76,6 +76,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.google.ai.edge.gallery.BuildConfig
 import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.data.EnglishDialect
+import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
+import com.google.ai.edge.gallery.voice.skills.KabemBuiltInSkills
 import com.google.ai.edge.gallery.data.TtsVoiceMode
 import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.ui.common.ClickableLink
@@ -97,12 +100,18 @@ fun SettingsDialog(
     curThemeOverride: Theme,
     curFirebaseAnalytics: Boolean,
     curTtsVoiceMode: TtsVoiceMode,
+    curEnglishDialect: EnglishDialect,
+    curConnectivityMode: ConnectivityMode,
+    curSelectedKabemSkillIds: Set<String>,
     modelManagerViewModel: ModelManagerViewModel,
   onDismissed: () -> Unit,
 ) {
   var selectedTheme by remember { mutableStateOf(curThemeOverride) }
   var selectedFirebaseAnalytics by remember { mutableStateOf(curFirebaseAnalytics) }
   var selectedTtsVoiceMode by remember { mutableStateOf(curTtsVoiceMode) }
+  var selectedEnglishDialect by remember { mutableStateOf(curEnglishDialect) }
+  var selectedConnectivityMode by remember { mutableStateOf(curConnectivityMode) }
+  var selectedKabemSkillIds by remember { mutableStateOf(curSelectedKabemSkillIds) }
   var hfToken by remember { mutableStateOf(modelManagerViewModel.getTokenStatusAndData().data) }
   val dateFormatter = remember {
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -196,6 +205,88 @@ fun SettingsDialog(
           }
 
           Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+          ) {
+            Text(
+              stringResource(R.string.kabem_skills_title),
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+              stringResource(R.string.kabem_skills_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            KabemBuiltInSkills.all.forEach { skill ->
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+              ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                  Text(skill.name, style = MaterialTheme.typography.bodyMedium)
+                  Text(
+                    skill.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+                Switch(
+                  checked = skill.id in selectedKabemSkillIds,
+                  onCheckedChange = { enabled ->
+                    selectedKabemSkillIds =
+                      if (enabled) selectedKabemSkillIds + skill.id
+                      else selectedKabemSkillIds - skill.id
+                    modelManagerViewModel.saveSelectedKabemSkillIds(selectedKabemSkillIds)
+                  },
+                )
+              }
+            }
+          }
+
+          Column(
+            modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Text(
+              stringResource(R.string.connectivity_mode_title),
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+              stringResource(R.string.connectivity_mode_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MultiChoiceSegmentedButtonRow {
+              ConnectivityMode.entries.forEachIndexed { index, mode ->
+                SegmentedButton(
+                  shape =
+                    SegmentedButtonDefaults.itemShape(
+                      index = index,
+                      count = ConnectivityMode.entries.size,
+                    ),
+                  onCheckedChange = {
+                    selectedConnectivityMode = mode
+                    modelManagerViewModel.saveConnectivityMode(mode)
+                    if (mode == ConnectivityMode.PRIVATE_OFFLINE) {
+                      selectedFirebaseAnalytics = false
+                    }
+                  },
+                  checked = mode == selectedConnectivityMode,
+                  label = {
+                    Text(
+                      when (mode) {
+                        ConnectivityMode.PRIVATE_OFFLINE -> stringResource(R.string.connectivity_mode_private)
+                        ConnectivityMode.CONNECTED -> stringResource(R.string.connectivity_mode_connected)
+                      }
+                    )
+                  },
+                )
+              }
+            }
+          }
+
+          Column(
             modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
             verticalArrangement = Arrangement.spacedBy(4.dp),
           ) {
@@ -234,6 +325,45 @@ fun SettingsDialog(
             }
           }
 
+          Column(
+            modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            Text(
+              stringResource(R.string.english_dialect_title),
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+            )
+            Text(
+              stringResource(R.string.english_dialect_description),
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            MultiChoiceSegmentedButtonRow {
+              EnglishDialect.entries.forEachIndexed { index, dialect ->
+                SegmentedButton(
+                  shape =
+                    SegmentedButtonDefaults.itemShape(
+                      index = index,
+                      count = EnglishDialect.entries.size,
+                    ),
+                  onCheckedChange = {
+                    selectedEnglishDialect = dialect
+                    modelManagerViewModel.saveEnglishDialect(dialect)
+                  },
+                  checked = dialect == selectedEnglishDialect,
+                  label = {
+                    Text(
+                      when (dialect) {
+                        EnglishDialect.AMERICAN -> stringResource(R.string.english_dialect_american)
+                        EnglishDialect.BRITISH -> stringResource(R.string.english_dialect_british)
+                      }
+                    )
+                  },
+                )
+              }
+            }
+          }
+
             Row(
               modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
               verticalAlignment = Alignment.CenterVertically,
@@ -255,6 +385,7 @@ fun SettingsDialog(
               }
               Switch(
                 checked = selectedFirebaseAnalytics,
+                enabled = selectedConnectivityMode == ConnectivityMode.CONNECTED,
                 onCheckedChange = { checked ->
                   selectedFirebaseAnalytics = checked
                   modelManagerViewModel.saveFirebaseAnalytics(checked)

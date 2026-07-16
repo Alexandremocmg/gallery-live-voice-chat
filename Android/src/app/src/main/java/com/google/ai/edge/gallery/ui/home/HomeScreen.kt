@@ -522,6 +522,9 @@ fun HomeScreen(
       curThemeOverride = modelManagerViewModel.readThemeOverride(),
       curFirebaseAnalytics = modelManagerViewModel.readFirebaseAnalytics(),
       curTtsVoiceMode = modelManagerViewModel.readTtsVoiceMode(),
+      curEnglishDialect = modelManagerViewModel.readEnglishDialect(),
+      curConnectivityMode = modelManagerViewModel.readConnectivityMode(),
+      curSelectedKabemSkillIds = modelManagerViewModel.readSelectedKabemSkillIds(),
       modelManagerViewModel = modelManagerViewModel,
       onDismissed = { showSettingsDialog = false },
     )

@@ -93,9 +93,13 @@
   <string name="downloaded_size" translatable="true">%1$s downloaded</string>
   <string name="drawer_settings_label" translatable="true">Settings</string>
   <string name="tts_voice_title" translatable="true">Voice style</string>
-  <string name="tts_voice_description" translatable="true">Uses the best installed local Portuguese voice. No audio or text leaves the phone.</string>
+  <string name="tts_voice_description" translatable="true">Usa as melhores vozes locais instaladas em portugu&#234;s e ingl&#234;s. Nenhum texto sai do celular.</string>
   <string name="tts_voice_natural" translatable="true">Natural</string>
   <string name="tts_voice_economical" translatable="true">Econom&#x00ED;mica</string>
+  <string name="english_dialect_title" translatable="true">Ingl&#234;s da aula</string>
+  <string name="english_dialect_description" translatable="true">Escolha a pron&#250;ncia usada nos exemplos e exerc&#237;cios offline.</string>
+  <string name="english_dialect_american" translatable="true">Americano</string>
+  <string name="english_dialect_british" translatable="true">Brit&#226;nico</string>
   <string name="drawer_settings_description" translatable="true">Manage application settings</string>
   <string name="drawer_models_label" translatable="true">Models</string>
   <string name="drawer_models_description" translatable="true">Browse, try, and benchmark models</string>
@@ -645,4 +649,10 @@
   <string name="config_label_font_size" translatable="true">Font size</string>
   <!-- Label for the 'Max character count' option in the model configuration dialog. [CHAR_LIMIT=NONE] -->
   <string name="config_label_max_char_count" translatable="true">Max character count</string>
+  <string name="connectivity_mode_title">Privacidade e conexão</string>
+  <string name="connectivity_mode_description">Privado mantém recursos locais. Conectado libera MCP e Skills online com indicação clara.</string>
+  <string name="connectivity_mode_private">Privado</string>
+  <string name="connectivity_mode_connected">Conectado</string>
+  <string name="kabem_skills_title">Skills do Kabem</string>
+  <string name="kabem_skills_description">Escolha quais especialistas podem ser ativados por voz.</string>
 </resources>

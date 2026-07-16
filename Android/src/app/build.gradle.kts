@@ -125,6 +125,8 @@ dependencies {
   implementation(libs.ktor.client.android)
   implementation(libs.ktor.client.core)
   implementation(libs.pdfbox.android)
+  // Bundled Latin OCR model: available immediately and fully offline.
+  implementation(libs.mlkit.text.recognition)
 }
 
 protobuf {

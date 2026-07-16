@@ -89,4 +89,16 @@ message ChatSessionProto {
   string voice_pdf_name = 9;
   // True when this is a Kabem Voice session, instead of a regular text chat.
   bool is_voice_session = 10;
+  // Built-in Kabem Skill active when the session was persisted.
+  string voice_active_skill_id = 11;
+  // Persisted state for the offline English teacher Skill.
+  bool voice_english_active = 12;
+  string voice_english_dialect = 13;
+  string voice_english_activity = 14;
+  string voice_english_expected_phrase = 15;
+  string voice_english_next_input_locale = 16;
+  float voice_english_demonstration_rate = 17;
+  int32 voice_english_attempt_count = 18;
+  // Compact deterministic summary used only when conversation history is restored.
+  string voice_context_summary = 19;
 }

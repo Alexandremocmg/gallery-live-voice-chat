@@ -5,6 +5,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,7 +50,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
 import com.google.ai.edge.gallery.common.decodeSampledBitmapFromUri
@@ -53,6 +61,10 @@ import com.google.ai.edge.gallery.voice.data.MemoryCandidate
 import com.google.ai.edge.gallery.voice.data.MemoryCategory
 import com.google.ai.edge.gallery.voice.data.MemoryItem
 import com.google.ai.edge.gallery.voice.data.ResponseDepthProfile
+import com.google.ai.edge.gallery.voice.language.EnglishActivity
+import com.google.ai.edge.gallery.voice.language.LanguagePackStatus
+import com.google.ai.edge.gallery.voice.intelligence.CognitiveMode
+import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -182,7 +194,15 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val recognizedText by viewModel.recognizedText.collectAsState()
     val lastResponse by viewModel.lastResponse.collectAsState()
     val responseProfile by viewModel.responseProfile.collectAsState()
+    val cognitiveMode by viewModel.cognitiveMode.collectAsState()
+    val activeSkill by viewModel.activeSkill.collectAsState()
+    val connectivityMode by viewModel.connectivityMode.collectAsState()
+    val englishLessonState by viewModel.englishLessonState.collectAsState()
+    val activeSpeechLocale by viewModel.activeSpeechLocale.collectAsState()
+    val voiceNotice by viewModel.voiceNotice.collectAsState()
+    val speechCapabilities by viewModel.speechCapabilities.collectAsState()
     val attachedImages by viewModel.attachedImages.collectAsState()
+    val attachedAudioName by viewModel.attachedAudioName.collectAsState()
     val imageSupport by viewModel.imageSupport.collectAsState()
     val pdfDocument by viewModel.pdfDocument.collectAsState()
     val pdfLoading by viewModel.pdfLoading.collectAsState()
@@ -201,15 +221,11 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             }
         }
     }
-    val takeImage = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        bitmap?.let(viewModel::attachImage)
-    }
+    var showCameraPreview by remember { mutableStateOf(false) }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) takeImage.launch(null)
+        if (granted) showCameraPreview = true
     }
     val pickPdf = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -225,6 +241,26 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             }
             viewModel.loadPdf(uri, uri.lastPathSegment?.substringAfterLast('/') ?: "Documento PDF")
         }
+    }
+    val pickAudio = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            viewModel.attachAudio(
+                uri = it,
+                displayName = it.lastPathSegment?.substringAfterLast('/') ?: "Audio anexado",
+            )
+        }
+    }
+
+    if (showCameraPreview) {
+        KabemCameraDialog(
+            onDismiss = { showCameraPreview = false },
+            onCaptured = { bitmap ->
+                viewModel.attachImage(bitmap)
+                showCameraPreview = false
+            },
+        )
     }
 
     Column(
@@ -250,22 +286,98 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        AssistChip(
-            onClick = {},
-            enabled = false,
-            label = { Text(responseProfile.label) },
-            leadingIcon = {
-                Text(
-                    text = when (responseProfile) {
-                        ResponseDepthProfile.FLASH -> "F"
-                        ResponseDepthProfile.DETAILED -> "D"
-                        ResponseDepthProfile.STEP_BY_STEP -> "P"
-                        ResponseDepthProfile.STRATEGIC -> "E"
-                    },
-                    style = MaterialTheme.typography.labelMedium
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = { Text(responseProfile.label) },
+                leadingIcon = {
+                    Text(
+                        text = when (responseProfile) {
+                            ResponseDepthProfile.FLASH -> "F"
+                            ResponseDepthProfile.DETAILED -> "D"
+                            ResponseDepthProfile.STEP_BY_STEP -> "P"
+                            ResponseDepthProfile.STRATEGIC -> "E"
+                        },
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            )
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = {
+                    Text(
+                        if (englishLessonState.activity == EnglishActivity.REPEAT) {
+                            "Repeticao"
+                        } else {
+                            activeSpeechLocale.shortLabel
+                        }
+                    )
+                },
+            )
+            if (cognitiveMode == CognitiveMode.DEEP) {
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text("Analise profunda") },
                 )
             }
-        )
+            activeSkill?.let { skill ->
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text(skill.name) },
+                )
+            }
+            AssistChip(
+                onClick = {},
+                enabled = false,
+                label = {
+                    Text(
+                        if (connectivityMode == ConnectivityMode.PRIVATE_OFFLINE) {
+                            "Privado"
+                        } else {
+                            "Conectado"
+                        }
+                    )
+                },
+            )
+        }
+
+        if (!voiceNotice.isNullOrBlank()) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = voiceNotice.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (englishLessonState.active) {
+                    TextButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(Intent("com.android.settings.TTS_SETTINGS"))
+                            }
+                        },
+                    ) { Text("Configurar vozes offline") }
+                }
+            }
+        }
+
+        val englishCapability = speechCapabilities[englishLessonState.dialect]
+        if (englishLessonState.active &&
+            englishCapability?.languagePackStatus == LanguagePackStatus.DOWNLOAD_AVAILABLE
+        ) {
+            OutlinedButton(onClick = viewModel::requestEnglishLanguagePack) {
+                Text("Baixar reconhecimento de ingles")
+            }
+        }
 
         if (pdfDocument != null || pdfLoading || pdfError != null) {
             Surface(
@@ -291,7 +403,12 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         )
                         if (pdfDocument != null) {
                             Text(
-                                text = "${pdfDocument!!.pageCount} paginas disponiveis para estudo",
+                                text = buildString {
+                                    append("${pdfDocument!!.pageCount} paginas para estudo")
+                                    if (pdfDocument!!.scannedPageCount > 0) {
+                                        append(" · ${pdfDocument!!.scannedPageCount} processadas por visao local")
+                                    }
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -359,6 +476,26 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     Text("Remover imagens")
                 }
                 Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            attachedAudioName?.let { audioName ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.AudioFile, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(audioName, modifier = Modifier.weight(1f), maxLines = 1)
+                        IconButton(onClick = viewModel::clearAttachedAudio) {
+                            Icon(Icons.Default.Close, contentDescription = "Remover audio")
+                        }
+                    }
+                }
             }
 
             if (recognizedText.isNotBlank()) {
@@ -439,18 +576,20 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     )
                 }
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     FilledTonalIconButton(
                         onClick = {
+                            viewModel.prepareForMediaAttachment()
                             pickImage.launch(
                                 androidx.activity.result.PickVisualMediaRequest(
                                     ActivityResultContracts.PickVisualMedia.ImageOnly
                                 )
                             )
                         },
-                        enabled = imageSupport && uiState is VoiceUiState.Idle,
+                        enabled = imageSupport &&
+                            (uiState is VoiceUiState.Idle || uiState is VoiceUiState.Listening),
                         modifier = Modifier.size(56.dp),
                     ) {
                         Icon(
@@ -461,15 +600,17 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     }
                     FilledTonalIconButton(
                         onClick = {
+                            viewModel.prepareForMediaAttachment()
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                                 PackageManager.PERMISSION_GRANTED
                             ) {
-                                takeImage.launch(null)
+                                showCameraPreview = true
                             } else {
                                 cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                             }
                         },
-                        enabled = imageSupport && uiState is VoiceUiState.Idle,
+                        enabled = imageSupport &&
+                            (uiState is VoiceUiState.Idle || uiState is VoiceUiState.Listening),
                         modifier = Modifier.size(56.dp),
                     ) {
                         Icon(
@@ -478,6 +619,93 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                             modifier = Modifier.size(28.dp),
                         )
                     }
+                    FilledTonalIconButton(
+                        onClick = {
+                            viewModel.prepareForMediaAttachment()
+                            pickAudio.launch(arrayOf("audio/*"))
+                        },
+                        enabled = uiState is VoiceUiState.Idle || uiState is VoiceUiState.Listening,
+                        modifier = Modifier.size(56.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.AudioFile,
+                            contentDescription = "Anexar audio",
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KabemCameraDialog(
+    onDismiss: () -> Unit,
+    onCaptured: (Bitmap) -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, previewView) {
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        var provider: ProcessCameraProvider? = null
+        providerFuture.addListener(
+            {
+                runCatching {
+                    provider = providerFuture.get()
+                    val preview = Preview.Builder().build().also {
+                        it.surfaceProvider = previewView.surfaceProvider
+                    }
+                    provider?.unbindAll()
+                    provider?.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
+                }.onFailure { error ->
+                    Log.e("KabemCamera", "Failed to open CameraX preview", error)
+                }
+            },
+            ContextCompat.getMainExecutor(context),
+        )
+        onDispose { provider?.unbindAll() }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+                Surface(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                ) {
+                    Text(
+                        "Camera ativa",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Fechar camera")
+                }
+                FilledIconButton(
+                    onClick = {
+                        previewView.bitmap?.copy(Bitmap.Config.ARGB_8888, false)?.let(onCaptured)
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(20.dp).size(72.dp),
+                ) {
+                    Icon(Icons.Default.PhotoCamera, contentDescription = "Capturar", modifier = Modifier.size(32.dp))
                 }
             }
         }

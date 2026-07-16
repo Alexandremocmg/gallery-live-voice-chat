@@ -19,6 +19,7 @@ package com.google.ai.edge.gallery.customtasks.agentchat
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -296,7 +297,21 @@ fun AgentChatScreen(
       )
     },
     onSkillClicked = { showSkillManagerBottomSheet = true },
-    onMcpClicked = { showMcpManagerBottomSheet = true },
+    onMcpClicked = {
+      if (
+        modelManagerViewModel.readConnectivityMode() ==
+          com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode.CONNECTED
+      ) {
+        showMcpManagerBottomSheet = true
+      } else {
+        Toast.makeText(
+            context,
+            "MCP fica disponivel somente no modo Conectado.",
+            Toast.LENGTH_SHORT,
+          )
+          .show()
+      }
+    },
     showImagePicker = true,
     showAudioPicker = true,
     getActiveSkills = {
