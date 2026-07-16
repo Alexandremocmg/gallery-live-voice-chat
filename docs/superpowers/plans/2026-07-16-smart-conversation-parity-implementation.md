@@ -10,6 +10,46 @@
 
 ---
 
+## Status da implementação — 16 de julho de 2026
+
+**Estado:** implementação principal concluída na branch `feat/live-voice-chat`, com compilação, testes unitários e APK debug validados localmente.
+
+### Entregue
+
+- linha do tempo persistida para mensagens de voz e teclado;
+- revisão de transcrição antes do envio e entrada textual contextual;
+- IDs persistentes de mensagem, origem `VOICE`/`TEXT` e migração determinística de sessões legadas;
+- ações contextuais centralizadas por policy: copiar, compartilhar, editar/reenviar, regenerar e ouvir novamente quando disponíveis;
+- proteção transacional de edição/regeneração por sessão, revisão e geração, incluindo rollback em falha assíncrona;
+- persistência versionada para impedir snapshots antigos de sobrescreverem revisões novas;
+- Markdown persistido nas respostas do assistente;
+- auto-scroll que respeita leitura manual, Snackbar, suporte a IME e contraste Material 3;
+- detecção conservadora de turnos multimodais para impedir reescrita quando imagem, áudio ou PDF não podem ser reconstruídos com segurança.
+
+### Limites intencionais
+
+- edição e regeneração ficam indisponíveis em turnos multimodais cujo payload não possa ser reconstruído integralmente;
+- `SELECT` e `SAVE_MEMORY` permanecem no enum de domínio, mas não são anunciados pela policy até possuírem uma ação de UI completa;
+- houve reutilização do `MessageBodyText`, porém a migração integral do cartão e das ações do `ChatPanel` continua como trabalho posterior;
+- a matriz manual em aparelho Android real e testes instrumentados Compose ainda precisam ser executados antes de declarar paridade total de release.
+
+### Verificação executada
+
+```bash
+cd Android/src
+./gradlew :app:testDebugUnitTest --no-daemon --rerun-tasks
+./gradlew :app:assembleDebug --no-daemon
+```
+
+Resultados observados:
+
+- `testDebugUnitTest`: `BUILD SUCCESSFUL`, 46 tarefas executadas;
+- `assembleDebug`: `BUILD SUCCESSFUL`;
+- APK: `Android/src/app/build/outputs/apk/debug/app-debug.apk`;
+- `git diff --check`: sem erros.
+
+---
+
 ## Contexto confirmado no código
 
 - `ChatPanel.kt` já possui entrada textual, histórico, anexos, copiar resposta, seleção de texto, `run again`, benchmark e templates.
@@ -479,7 +519,7 @@ Cada transição inválida deve ser ignorada de forma segura ou gerar uma ação
 
 ### Task 7.1: Criar matriz manual de aceitação
 
-**Objetivo:** Validar o fluxo completo em aparelho real, especialmente porque o ambiente atual não possui JDK/dispositivo Android conectado.
+**Objetivo:** Validar o fluxo completo em aparelho real. O ambiente de desenvolvimento já possui JDK/Android SDK e executou os gates locais, mas não possui dispositivo Android conectado para a matriz manual.
 
 **Matriz:**
 
@@ -522,7 +562,7 @@ cd Android/src
 - GitHub Actions publica o artefato com nome único por commit;
 - teste manual no celular confirma a matriz da Task 7.1.
 
-Se `JAVA_HOME`/`java` não estiver disponível localmente, executar os gates no GitHub Actions e registrar essa limitação; não declarar a implementação validada apenas por inspeção estática.
+Os gates locais foram executados com JDK 21 e Android SDK 37. O GitHub Actions e a matriz manual em aparelho continuam sendo validações independentes necessárias antes de uma release.
 
 ---
 

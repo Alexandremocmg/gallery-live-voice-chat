@@ -43,7 +43,7 @@ For users without Google Play access, install the apk from the [**latest release
 
 * **Audio Scribe**: Transcribe and translate voice recordings into text in real-time using high-efficiency on-device language models.
 
-*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Features include multimodal support (camera/gallery), PDF study mode (chat with your documents via voice), advanced TTS configuration (Google Speech Services prioritization, offline mode), persistent offline sessions, and **Personal Memory** (saves user preferences and structured memories locally).
+*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Voice and keyboard now share a persistent timeline with transcript review, Markdown responses, contextual copy/share/edit/regenerate actions and response replay. Multimodal turns support camera/gallery, audio and PDF study; unsafe edit/regenerate actions are conservatively disabled when their media payload cannot be reconstructed. Sessions, preferences and **Personal Memory** remain local to the device.
 
 *   **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
 
@@ -69,6 +69,16 @@ For users without Google Play access, install the apk from the [**latest release
 *   **Material Design 3:** tema dinâmico com tokens de cor próprios para modo claro e escuro.
 *   **Componentes:** TopBar, PromoScreen e TemsOfUse reestilizados com a marca Kabem Voice.
 *   **Live Voice:** controles de galeria/câmera espaçados, animação de waveform e chip de perfil de resposta.
+
+## 💬 Conversa híbrida do Kabem Voice
+
+*   **Voz e teclado no mesmo histórico:** alterne o modo de entrada sem criar uma conversa paralela.
+*   **Revisão de transcrição:** corrija o texto reconhecido antes de enviá-lo ao modelo.
+*   **Ações contextuais:** toque longo ou menu de overflow para copiar, compartilhar, editar, regenerar ou reproduzir respostas, conforme a policy e as capacidades disponíveis.
+*   **Histórico resiliente:** mensagens possuem IDs persistentes, migração de sessões legadas, revisão monotônica e rollback de edições que falhem.
+*   **Segurança multimodal:** turnos com imagem, áudio ou PDF não oferecem edição/regeneração quando o contexto original não pode ser restaurado integralmente.
+
+Detalhes de implementação, limitações e matriz de validação estão no [plano de paridade de conversa](docs/superpowers/plans/2026-07-16-smart-conversation-parity-implementation.md).
 
 ## 🧠 Professor Adaptativo (Adaptive Teacher)
 
