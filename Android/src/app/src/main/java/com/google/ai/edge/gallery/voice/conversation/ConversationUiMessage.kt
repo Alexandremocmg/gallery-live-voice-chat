@@ -32,6 +32,7 @@ data class ConversationUiMessage(
   val source: ConversationMessageSource,
   val canEdit: Boolean,
   val isMarkdown: Boolean = true,
+  val attachmentLabels: List<String> = emptyList(),
 )
 
 /** Maps the persisted voice message format to the UI contract. */
@@ -63,6 +64,17 @@ object ConversationUiMessageMapper {
       },
       canEdit = side == ConversationMessageSide.USER && status == ConversationMessageStatus.COMPLETE,
       isMarkdown = message.isMarkdown,
+      attachmentLabels = buildList {
+        if (message.imageFilePathsCount > 0) {
+          add(if (message.imageFilePathsCount == 1) "1 imagem" else "${message.imageFilePathsCount} imagens")
+        }
+        if (message.audioClipsCount > 0) {
+          add(if (message.audioClipsCount == 1) "1 áudio" else "${message.audioClipsCount} áudios")
+        }
+        if (message.pdfPageNumbersCount > 0) {
+          add("PDF · páginas ${message.pdfPageNumbersList.joinToString(", ")}")
+        }
+      },
     )
   }
 

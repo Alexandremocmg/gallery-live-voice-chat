@@ -69,4 +69,37 @@ class ConversationUiMessageTest {
     assertEquals(ConversationMessageStatus.ERROR, message.status)
     assertFalse(message.canEdit)
   }
+
+  @Test
+  fun `maps persisted media metadata to attachment labels`() {
+    val message =
+      ConversationUiMessageMapper.fromProto(
+        listOf(
+          ChatMessageProto.newBuilder()
+            .setSide(ChatSideProto.CHAT_SIDE_USER)
+            .setContent("Analise isso")
+            .addImageFilePaths("image.png")
+            .addAudioClips(com.google.ai.edge.gallery.proto.AudioMessageProto.getDefaultInstance())
+            .addPdfPageNumbers(2)
+            .build()
+        )
+      ).single()
+
+    assertEquals(listOf("1 imagem", "1 áudio", "PDF · páginas 2"), message.attachmentLabels)
+  }
+
+  @Test
+  fun `preserves markdown flag`() {
+    val message =
+      ConversationUiMessageMapper.fromProto(
+        listOf(
+          ChatMessageProto.newBuilder()
+            .setSide(ChatSideProto.CHAT_SIDE_MODEL)
+            .setIsMarkdown(false)
+            .build()
+        )
+      ).single()
+
+    assertFalse(message.isMarkdown)
+  }
 }
