@@ -34,5 +34,5 @@ jobs:
     - name: Salvar APK nos Artifacts do GitHub
       uses: actions/upload-artifact@v4
       with:
-        name: Kabem-Voice-Debug-APK
+        name: Kabem-Voice-Debug-APK-bf6ca8c
         path: Android/src/app/build/outputs/apk/debug/app-debug.apk
