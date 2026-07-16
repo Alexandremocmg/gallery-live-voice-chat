@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,12 +42,16 @@ import com.google.ai.edge.gallery.voice.conversation.ConversationUiMessage
 fun VoiceConversationTimeline(
     messages: List<ConversationUiMessage>,
     onSpeakAgain: (ConversationUiMessage) -> Unit,
+    onEditAndResend: (ConversationUiMessage, String) -> Unit,
+    onRegenerate: (ConversationUiMessage) -> Unit,
     modifier: Modifier = Modifier,
     listState: LazyListState? = null,
 ) {
     val state = listState ?: rememberLazyListState()
     val context = LocalContext.current
     var selectedMessage by remember { mutableStateOf<ConversationUiMessage?>(null) }
+    var editingMessage by remember { mutableStateOf<ConversationUiMessage?>(null) }
+    var editDraft by remember { mutableStateOf("") }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -137,6 +142,48 @@ fun VoiceConversationTimeline(
                     text = if (message.side == ConversationMessageSide.USER) "Mensagem enviada" else "Resposta do Kabem",
                     style = MaterialTheme.typography.titleMedium,
                 )
+                if (editingMessage?.id == message.id) {
+                    OutlinedTextField(
+                        value = editDraft,
+                        onValueChange = { editDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Editar mensagem") },
+                        minLines = 2,
+                        maxLines = 6,
+                    )
+                    Button(
+                        onClick = {
+                            onEditAndResend(message, editDraft)
+                            editingMessage = null
+                            selectedMessage = null
+                        },
+                        enabled = editDraft.trim().isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Enviar edição") }
+                    TextButton(
+                        onClick = { editingMessage = null },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Cancelar edição") }
+                } else {
+                    if (message.side == ConversationMessageSide.USER && message.canEdit) {
+                        TextButton(
+                            onClick = {
+                                editingMessage = message
+                                editDraft = message.text
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Editar e reenviar") }
+                    }
+                    if (message.side == ConversationMessageSide.ASSISTANT) {
+                        TextButton(
+                            onClick = {
+                                onRegenerate(message)
+                                selectedMessage = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Regenerar resposta") }
+                    }
+                }
                 Button(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

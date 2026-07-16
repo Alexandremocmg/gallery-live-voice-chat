@@ -448,6 +448,92 @@ class VoiceViewModel(
     submitText(text)
   }
 
+  fun editAndResendMessage(position: Int, text: String) {
+    val normalized = text.trim()
+    if (normalized.isBlank() || responseGenerationInProgress.get()) return
+    val model = activeModel ?: return
+    val removedMessages = synchronized(sessionMessagesLock) {
+      if (position !in sessionMessages.indices ||
+        sessionMessages[position].side != ChatSideProto.CHAT_SIDE_USER
+      ) return
+      sessionMessages.drop(position).also {
+        sessionMessages.subList(position, sessionMessages.size).clear()
+      }
+    }
+    refreshConversationMessages()
+    viewModelScope.launch(Dispatchers.Default) {
+      try {
+        val initialMessages = currentLiteRtMessages()
+        model.runtimeHelper.resetConversation(
+          model = model,
+          supportImage = _imageSupport.value,
+          supportAudio = model.llmSupportAudio,
+          systemInstruction = Contents.of(systemPrompt),
+          initialMessages = initialMessages,
+        )
+        restoredInitialMessages = emptyList()
+        isConversationReset = true
+        runtimeHistoryStartMessageCount =
+          synchronized(sessionMessagesLock) {
+            (sessionMessages.size - MAX_RESTORED_MESSAGES).coerceAtLeast(0)
+          }
+        withContext(Dispatchers.Main) {
+          submitText(normalized)
+        }
+      } catch (error: Exception) {
+        synchronized(sessionMessagesLock) {
+          sessionMessages.addAll(removedMessages)
+        }
+        refreshConversationMessages()
+        withContext(Dispatchers.Main) {
+          _uiState.value = VoiceUiState.Error("Não foi possível editar a mensagem: ${error.message}")
+        }
+      }
+    }
+  }
+
+  fun regenerateMessage(position: Int) {
+    if (responseGenerationInProgress.get()) return
+    val model = activeModel ?: return
+    val promptAndRemoved = synchronized(sessionMessagesLock) {
+      if (position !in sessionMessages.indices ||
+        sessionMessages[position].side != ChatSideProto.CHAT_SIDE_MODEL
+      ) return
+      val userIndex = (position - 1 downTo 0).firstOrNull { index ->
+        sessionMessages[index].side == ChatSideProto.CHAT_SIDE_USER
+      } ?: return
+      val prompt = sessionMessages[userIndex].content
+      val removed = sessionMessages.drop(userIndex)
+      sessionMessages.subList(userIndex, sessionMessages.size).clear()
+      prompt to removed
+    }
+    refreshConversationMessages()
+    viewModelScope.launch(Dispatchers.Default) {
+      try {
+        model.runtimeHelper.resetConversation(
+          model = model,
+          supportImage = _imageSupport.value,
+          supportAudio = model.llmSupportAudio,
+          systemInstruction = Contents.of(systemPrompt),
+          initialMessages = currentLiteRtMessages(),
+        )
+        restoredInitialMessages = emptyList()
+        isConversationReset = true
+        withContext(Dispatchers.Main) {
+          submitText(promptAndRemoved.first)
+        }
+      } catch (error: Exception) {
+        synchronized(sessionMessagesLock) {
+          sessionMessages.addAll(promptAndRemoved.second)
+        }
+        refreshConversationMessages()
+        withContext(Dispatchers.Main) {
+          _uiState.value = VoiceUiState.Error("Não foi possível regenerar a resposta: ${error.message}")
+        }
+      }
+    }
+  }
+
   fun speakMessage(text: String) {
     if (text.isBlank()) return
     voiceChatManager.stopSpeaking()

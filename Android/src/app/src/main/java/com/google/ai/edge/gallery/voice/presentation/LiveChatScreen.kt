@@ -510,6 +510,8 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 VoiceConversationTimeline(
                     messages = conversationMessages,
                     onSpeakAgain = { message -> viewModel.speakMessage(message.text) },
+                    onEditAndResend = { message, text -> viewModel.editAndResendMessage(message.position, text) },
+                    onRegenerate = { message -> viewModel.regenerateMessage(message.position) },
                     modifier = Modifier.fillMaxWidth().weight(1f),
                 )
             } else if (recognizedText.isNotBlank()) {
