@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
@@ -154,7 +155,20 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
 
                 when (val state = uiState) {
                     is VoiceUiState.NoModel -> {
-                        NoModelScreen(onBackClicked)
+                        ModelReadinessScreen(
+                            title = "Nenhum modelo pronto",
+                            message = "Baixe o Gemma-4-E2B-it recomendado para iniciar a conversa local.",
+                            onDownloadModel = viewModel::downloadRecommendedModel,
+                            onBackClicked = onBackClicked,
+                        )
+                    }
+                    is VoiceUiState.ModelUnavailable -> {
+                        ModelReadinessScreen(
+                            title = "Modelo nao compativel",
+                            message = state.message,
+                            onDownloadModel = viewModel::downloadRecommendedModel,
+                            onBackClicked = onBackClicked,
+                        )
                     }
                     is VoiceUiState.Loading -> {
                         LoadingScreen(state.message)
@@ -1101,6 +1115,50 @@ fun WaveformAnimation(isListening: Boolean) {
                 .scale(scale1)
                 .background(color.copy(alpha = 0.22f), CircleShape)
         )
+    }
+}
+
+@Composable
+private fun ModelReadinessScreen(
+    title: String,
+    message: String,
+    onDownloadModel: () -> Unit,
+    onBackClicked: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Default.CloudDownload,
+            contentDescription = null,
+            modifier = Modifier.size(72.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(onClick = onDownloadModel) {
+            Text("Baixar Gemma E2B")
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        TextButton(onClick = onBackClicked) {
+            Text("Ir para Tela Inicial")
+        }
     }
 }
 

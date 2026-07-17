@@ -196,6 +196,7 @@ class VoiceViewModel(
   private var activeModel: Model? = null
   private var downloadedVoiceModels: List<Model> = emptyList()
   private var activeTask: Task? = null
+  private var automaticVoiceDownloadRequested = false
   private var isConversationReset = false
   private val responseGenerationInProgress = AtomicBoolean(false)
   private val generationEpoch = AtomicLong(0L)
@@ -260,55 +261,93 @@ class VoiceViewModel(
       modelManagerViewModel.uiState.collectLatest { managerState ->
         val task = managerState.tasks.find { it.id == BuiltInTaskId.LLM_CHAT }
         activeTask = task
-        if (task != null) {
-          downloadedVoiceModels =
-            task.models.filter { model ->
-              managerState.modelDownloadStatus[model.name]?.status ==
-                ModelDownloadStatusType.SUCCEEDED
+        if (task == null) {
+          _uiState.value =
+            when {
+              managerState.loadingModelAllowlist ->
+                VoiceUiState.Loading("Preparando os modelos locais...")
+              managerState.loadingModelAllowlistError.isNotBlank() ->
+                VoiceUiState.Error(managerState.loadingModelAllowlistError)
+              else -> VoiceUiState.NoModel
             }
-          val downloaded =
-            voiceModelSelector
-              .select(
-                downloadedVoiceModels,
-                RequiredCapabilities(),
-                deviceCapabilityProvider.current().totalMemoryGb,
-              )
-              .model
-          if (activeModel?.name != downloaded?.name) {
-            isConversationReset = false
-          }
-          activeModel = downloaded
-          _imageSupport.value = downloaded?.llmSupportImage == true
+          return@collectLatest
+        }
 
-          if (downloaded == null) {
-            _uiState.value = VoiceUiState.NoModel
-          } else {
-            val initStatus = managerState.modelInitializationStatus[downloaded.name]?.status
-            when (initStatus) {
-              ModelInitializationStatusType.INITIALIZED -> {
-                if (_uiState.value is VoiceUiState.Loading || _uiState.value is VoiceUiState.NoModel) {
-                  _uiState.value = VoiceUiState.Idle
-                }
-                ensureConversationReset(downloaded)
+        val downloading = task.models.firstOrNull { model ->
+          managerState.modelDownloadStatus[model.name]?.status ==
+            ModelDownloadStatusType.IN_PROGRESS
+        }
+        if (downloading != null) {
+          activeModel = null
+          _imageSupport.value = false
+          _uiState.value = VoiceUiState.Loading("Baixando '${downloading.name}'...")
+          return@collectLatest
+        }
+
+        downloadedVoiceModels =
+          task.models.filter { model ->
+            managerState.modelDownloadStatus[model.name]?.status ==
+              ModelDownloadStatusType.SUCCEEDED
+          }
+        val deviceProfile = deviceCapabilityProvider.current()
+        val selection =
+          voiceModelSelector.select(
+            downloadedVoiceModels,
+            RequiredCapabilities(),
+            deviceProfile.totalMemoryGb,
+          )
+        val downloaded = selection.model
+        if (downloaded == null && downloadedVoiceModels.isNotEmpty()) {
+          val limitedModel = downloadedVoiceModels.maxByOrNull { it.minDeviceMemoryInGb ?: 0 }
+          val message =
+            if (limitedModel != null && (limitedModel.minDeviceMemoryInGb ?: 0) > deviceProfile.totalMemoryGb) {
+              "${limitedModel.name} exige pelo menos ${limitedModel.minDeviceMemoryInGb} GB de RAM. " +
+                "O aparelho foi detectado com ${deviceProfile.totalMemoryGb} GB. Baixe o Gemma-4-E2B-it recomendado."
+            } else {
+              selection.reason
+          }
+          _uiState.value = VoiceUiState.ModelUnavailable(message)
+          if (!automaticVoiceDownloadRequested) {
+            automaticVoiceDownloadRequested = true
+            downloadRecommendedModel()
+          }
+        }
+        if (activeModel?.name != downloaded?.name) {
+          isConversationReset = false
+        }
+        activeModel = downloaded
+        _imageSupport.value = downloaded?.llmSupportImage == true
+
+        if (downloaded != null) {
+          val initStatus = managerState.modelInitializationStatus[downloaded.name]?.status
+          when (initStatus) {
+            ModelInitializationStatusType.INITIALIZED -> {
+              if (_uiState.value is VoiceUiState.Loading || _uiState.value is VoiceUiState.NoModel) {
+                _uiState.value = VoiceUiState.Idle
               }
-              ModelInitializationStatusType.INITIALIZING -> {
-                _uiState.value =
-                  VoiceUiState.Loading("Inicializando o modelo '${downloaded.name}' no celular...")
-              }
-              ModelInitializationStatusType.ERROR -> {
-                val errorMsg =
-                  managerState.modelInitializationStatus[downloaded.name]?.error
-                    ?: "Erro ao carregar o modelo."
-                _uiState.value = VoiceUiState.Error(errorMsg)
-              }
-              else -> {
-                _uiState.value = VoiceUiState.Loading("Carregando o modelo '${downloaded.name}'...")
-                modelManagerViewModel.initializeModel(context, task, downloaded)
-              }
+              ensureConversationReset(downloaded)
+            }
+            ModelInitializationStatusType.INITIALIZING -> {
+              _uiState.value =
+                VoiceUiState.Loading("Inicializando o modelo '${downloaded.name}' no celular...")
+            }
+            ModelInitializationStatusType.ERROR -> {
+              val errorMsg =
+                managerState.modelInitializationStatus[downloaded.name]?.error
+                  ?: "Erro ao carregar o modelo."
+              _uiState.value = VoiceUiState.Error(errorMsg)
+            }
+            else -> {
+              _uiState.value = VoiceUiState.Loading("Carregando o modelo '${downloaded.name}'...")
+              modelManagerViewModel.initializeModel(context, task, downloaded)
             }
           }
-        } else {
+        } else if (downloadedVoiceModels.isEmpty()) {
           _uiState.value = VoiceUiState.NoModel
+          if (!automaticVoiceDownloadRequested) {
+            automaticVoiceDownloadRequested = true
+            downloadRecommendedModel()
+          }
         }
       }
     }
@@ -438,6 +477,33 @@ class VoiceViewModel(
     }
     conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
     _uiState.value = VoiceUiState.Idle
+  }
+
+  fun downloadRecommendedModel() {
+    val task = activeTask ?: modelManagerViewModel.getTaskById(BuiltInTaskId.LLM_CHAT) ?: return
+    val availableMemoryGb = deviceCapabilityProvider.current().totalMemoryGb
+    val recommended =
+      task.models.firstOrNull {
+        it.name == RECOMMENDED_VOICE_MODEL &&
+          (it.minDeviceMemoryInGb ?: 0) <= availableMemoryGb
+      }
+        ?: task.models
+          .filter { model ->
+            model.isLlm && (model.minDeviceMemoryInGb ?: 0) <= availableMemoryGb
+          }
+          .minByOrNull { it.minDeviceMemoryInGb ?: Int.MAX_VALUE }
+    if (recommended == null) {
+      _uiState.value = VoiceUiState.Error("Nenhum modelo de voz compativel foi encontrado.")
+      return
+    }
+    val status = modelManagerViewModel.uiState.value.modelDownloadStatus[recommended.name]?.status
+    if (status == ModelDownloadStatusType.SUCCEEDED) {
+      _uiState.value = VoiceUiState.Loading("Preparando '${recommended.name}'...")
+      return
+    }
+    if (status == ModelDownloadStatusType.IN_PROGRESS) return
+    _uiState.value = VoiceUiState.Loading("Baixando '${recommended.name}'...")
+    modelManagerViewModel.downloadModel(task, recommended)
   }
 
   fun requestEnglishLanguagePack() {
@@ -1808,9 +1874,12 @@ sealed class VoiceUiState {
   object Speaking : VoiceUiState()
   data class ReviewingTranscript(val text: String) : VoiceUiState()
   object NoModel : VoiceUiState()
+  data class ModelUnavailable(val message: String) : VoiceUiState()
   data class Loading(val message: String) : VoiceUiState()
   data class Error(val message: String) : VoiceUiState()
 }
+
+private const val RECOMMENDED_VOICE_MODEL = "Gemma-4-E2B-it"
 
 private data class PendingConversationRewrite(
   val sessionId: String,

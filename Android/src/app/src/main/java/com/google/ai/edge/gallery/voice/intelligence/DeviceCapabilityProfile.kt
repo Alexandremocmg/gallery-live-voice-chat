@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.BatteryManager
 import android.os.PowerManager
+import kotlin.math.ceil
 
 data class DeviceCapabilityProfile(
   val totalMemoryGb: Int,
@@ -24,7 +25,9 @@ class DeviceCapabilityProfileProvider(private val context: Context) {
   fun current(): DeviceCapabilityProfile {
     val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     val memoryInfo = ActivityManager.MemoryInfo().also(activityManager::getMemoryInfo)
-    val totalMemoryGb = (memoryInfo.totalMem / BYTES_PER_GB).toInt().coerceAtLeast(1)
+    // Android reports binary GiB; rounding up preserves the device's marketed RAM category.
+    val totalMemoryGb =
+      ceil(memoryInfo.totalMem.toDouble() / BYTES_PER_GB).toInt().coerceAtLeast(1)
     val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     val batteryPercent = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
     val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager

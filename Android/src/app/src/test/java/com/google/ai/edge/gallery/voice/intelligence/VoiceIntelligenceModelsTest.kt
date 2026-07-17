@@ -60,5 +60,10 @@ class VoiceIntelligenceModelsTest {
       selector.select(listOf(large, small), RequiredCapabilities(audio = true), 8).model?.name,
     )
     assertNull(selector.select(listOf(small), RequiredCapabilities(image = true), 4).model)
+    assertEquals(
+      "Gemma E4B",
+      selector.select(listOf(large), RequiredCapabilities(audio = true), 12).model?.name,
+    )
+    assertNull(selector.select(listOf(large), RequiredCapabilities(audio = true), 11).model)
   }
 }
