@@ -17,7 +17,7 @@
 ### Entregue
 
 - linha do tempo persistida para mensagens de voz e teclado;
-- revisão de transcrição antes do envio e entrada textual contextual;
+- envio automático de transcrições normais e revisão manual apenas quando a confiança é baixa;
 - IDs persistentes de mensagem, origem `VOICE`/`TEXT` e migração determinística de sessões legadas;
 - ações contextuais centralizadas por policy: copiar, compartilhar, editar/reenviar, regenerar e ouvir novamente quando disponíveis;
 - proteção transacional de edição/regeneração por sessão, revisão e geração, incluindo rollback em falha assíncrona;
@@ -64,10 +64,11 @@ Resultados observados:
 2. **Entrada padrão:** voz continua sendo a ação primária no Kabem Voice.
 3. **Entrada alternativa:** teclado aparece por botão contextual, com opção de torná-lo o modo padrão.
 4. **Primeiras ações visíveis:** `Copiar`, `Editar` e `Mais`.
-5. **Ações em `Mais`:** regenerar, compartilhar, ouvir novamente, salvar na memória e remover/ramificar.
-6. **Edição de mensagem:** ao editar uma mensagem do usuário, as respostas posteriores devem ser invalidadas ou tratadas como uma nova ramificação; nunca manter uma resposta antiga como se ainda correspondesse à pergunta editada.
-7. **Download/recursos:** esta entrega não deve iniciar downloads automáticos de modelos; o planner de capacidades será integrado em uma etapa separada.
-8. **Privacidade:** copiar e compartilhar são ações locais explícitas; nenhum texto deve sair do aparelho sem uma ação deliberada do usuário.
+5. **Conversa contínua:** o resultado final do reconhecimento é enviado automaticamente; a revisão não interrompe o fluxo normal.
+6. **Ações em `Mais`:** regenerar, compartilhar, ouvir novamente, salvar na memória e remover/ramificar.
+7. **Edição de mensagem:** ao editar uma mensagem do usuário, as respostas posteriores devem ser invalidadas ou tratadas como uma nova ramificação; nunca manter uma resposta antiga como se ainda correspondesse à pergunta editada.
+8. **Download/recursos:** esta entrega não deve iniciar downloads automáticos de modelos; o planner de capacidades será integrado em uma etapa separada.
+9. **Privacidade:** copiar e compartilhar são ações locais explícitas; nenhum texto deve sair do aparelho sem uma ação deliberada do usuário.
 
 ---
 
@@ -75,7 +76,7 @@ Resultados observados:
 
 - O usuário consegue iniciar uma conversa por voz como hoje, sem abrir o teclado.
 - O usuário consegue alternar para teclado e enviar uma mensagem textual no mesmo histórico.
-- O usuário consegue revisar a transcrição antes do envio quando a revisão estiver habilitada.
+- O usuário consegue revisar uma transcrição quando o reconhecimento indicar baixa confiança.
 - Mensagens do usuário e do assistente aparecem em uma linha do tempo rolável e persistente.
 - Uma resposta finalizada pode ser copiada, selecionada e compartilhada.
 - Uma mensagem do usuário pode ser editada e reenviada sem deixar respostas incompatíveis no histórico ativo.
@@ -266,26 +267,28 @@ A política deve considerar:
 
 ### Task 2.2: Implementar revisão de transcrição
 
-**Objetivo:** Permitir que o usuário corrija uma transcrição antes de ela entrar no contexto do modelo.
+**Objetivo:** Manter a conversa contínua, enviando automaticamente transcrições confiáveis e oferecendo correção quando o reconhecimento estiver incerto.
 
 **Arquivos:**
 - Modificar: `Android/src/app/src/main/java/com/google/ai/edge/gallery/voice/presentation/LiveChatScreen.kt`
 - Modificar: `Android/src/app/src/main/java/com/google/ai/edge/gallery/voice/presentation/VoiceViewModel.kt`
 - Modificar: arquivo de preferências/DataStore já usado para configurações do Kabem Voice
-- Testar: `Android/src/app/src/test/java/com/google/ai/edge/gallery/voice/presentation/TranscriptReviewPolicyTest.kt`
+- Testar: `Android/src/app/src/test/java/com/google/ai/edge/gallery/voice/language/SpeechReviewPolicyTest.kt`
 
 **Estados:**
 
 ```text
-LISTENING → TRANSCRIPT_REVIEW → GENERATING → SPEAKING
+LISTENING → GENERATING → SPEAKING
+     └─ baixa confiança → TRANSCRIPT_REVIEW → GENERATING
 ```
 
 **Implementação:**
 
-- Criar `TranscriptReviewPolicy` com três opções: nunca, baixa confiança, sempre.
-- Usar revisão automática somente se houver sinal de baixa confiança disponível; caso não haja, tratar como `UNKNOWN`, não inventar confiança.
+- Criar `SpeechReviewPolicy` com limiar de baixa confiança (`0.55`).
+- Usar revisão automática somente se houver score de confiança disponível e abaixo do limiar; caso não haja, enviar automaticamente.
 - Exibir `Você disse:` com `Editar`, `Enviar` e `Descartar`.
-- Nunca adicionar a transcrição ao runtime antes de `Enviar`.
+- Para reconhecimento confiável, enviar a transcrição diretamente ao runtime sem exibir a barra de revisão.
+- Nunca adicionar uma transcrição em revisão ao runtime antes de `Enviar`.
 - Se o usuário tocar no microfone enquanto revisa, preservar o texto ou solicitar descarte explícito.
 
 **Verificação:**
@@ -526,7 +529,8 @@ Cada transição inválida deve ser ignorada de forma segura ou gerar uma ação
 | Cenário | Resultado esperado |
 |---|---|
 | Voz → resposta → copiar | Texto correto no clipboard e Snackbar |
-| Voz → editar transcrição → enviar | Somente texto corrigido chega ao modelo |
+| Voz → reconhecimento confiável | Texto é enviado automaticamente ao modelo |
+| Voz → baixa confiança → editar transcrição → enviar | Somente texto corrigido chega ao modelo |
 | Teclado → enviar | Mensagem entra na mesma linha do tempo |
 | Toque longo na resposta | Menu contextual aparece |
 | Selecionar resposta | Seleção funciona sem copiar automaticamente |

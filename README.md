@@ -43,7 +43,7 @@ For users without Google Play access, install the apk from the [**latest release
 
 * **Audio Scribe**: Transcribe and translate voice recordings into text in real-time using high-efficiency on-device language models.
 
-*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Voice and keyboard now share a persistent timeline with transcript review, Markdown responses, contextual copy/share/edit/regenerate actions and response replay. Multimodal turns support camera/gallery, audio and PDF study; unsafe edit/regenerate actions are conservatively disabled when their media payload cannot be reconstructed. Sessions, preferences and **Personal Memory** remain local to the device.
+*   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Voice and keyboard share a persistent timeline, and normal speech is sent automatically when silence ends the turn. Transcript review is reserved for low-confidence recognition, while Markdown responses, contextual copy/share/edit/regenerate actions and response replay remain available. Multimodal turns support camera/gallery, audio and PDF study; unsafe edit/regenerate actions are conservatively disabled when their media payload cannot be reconstructed. Sessions, preferences and **Personal Memory** remain local to the device.
 
 *   **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
 
@@ -73,7 +73,9 @@ For users without Google Play access, install the apk from the [**latest release
 ## 💬 Conversa híbrida do Kabem Voice
 
 *   **Voz e teclado no mesmo histórico:** alterne o modo de entrada sem criar uma conversa paralela.
-*   **Revisão de transcrição:** corrija o texto reconhecido antes de enviá-lo ao modelo.
+*   **Conversa contínua:** a fala é enviada automaticamente após o silêncio indicar o fim do turno, sem tela intermediária.
+*   **Revisão inteligente:** transcrições com baixa confiança entram em revisão; as demais seguem direto para o modelo.
+*   **Retorno automático:** depois que o Kabem termina de falar, ele volta a ouvir para manter o ritmo de uma conversa natural.
 *   **Ações contextuais:** toque longo ou menu de overflow para copiar, compartilhar, editar, regenerar ou reproduzir respostas, conforme a policy e as capacidades disponíveis.
 *   **Histórico resiliente:** mensagens possuem IDs persistentes, migração de sessões legadas, revisão monotônica e rollback de edições que falhem.
 *   **Segurança multimodal:** turnos com imagem, áudio ou PDF não oferecem edição/regeneração quando o contexto original não pode ser restaurado integralmente.

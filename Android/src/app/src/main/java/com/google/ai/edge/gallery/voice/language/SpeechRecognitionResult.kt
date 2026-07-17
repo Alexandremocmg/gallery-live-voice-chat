@@ -14,3 +14,12 @@ data class SpeechRecognitionResult(
   val locale: SpeechLocale,
   val backend: RecognitionBackend,
 )
+
+object SpeechReviewPolicy {
+  const val LOW_CONFIDENCE_THRESHOLD = 0.55f
+
+  fun shouldReview(result: SpeechRecognitionResult): Boolean {
+    val confidence = result.confidenceScores.firstOrNull() ?: return false
+    return confidence >= 0f && confidence < LOW_CONFIDENCE_THRESHOLD
+  }
+}

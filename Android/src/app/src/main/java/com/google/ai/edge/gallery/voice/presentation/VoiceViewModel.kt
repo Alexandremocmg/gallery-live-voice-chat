@@ -52,6 +52,7 @@ import com.google.ai.edge.gallery.voice.language.IntelligibilityAnalyzer
 import com.google.ai.edge.gallery.voice.language.SpeechChunk
 import com.google.ai.edge.gallery.voice.language.SpeechLocale
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionResult
+import com.google.ai.edge.gallery.voice.language.SpeechReviewPolicy
 import com.google.ai.edge.gallery.voice.language.RecognitionBackend
 import com.google.ai.edge.gallery.voice.intelligence.CognitiveMode
 import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
@@ -358,8 +359,12 @@ class VoiceViewModel(
           is SpeechState.ResultReady -> {
             _recognizedText.value = state.result.text
             _activeSpeechLocale.value = state.result.locale
-            _uiState.value = VoiceUiState.ReviewingTranscript(state.result.text)
-            conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
+            if (SpeechReviewPolicy.shouldReview(state.result)) {
+              _uiState.value = VoiceUiState.ReviewingTranscript(state.result.text)
+              conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
+            } else {
+              submitText(state.result.text, ConversationMessageSource.VOICE)
+            }
           }
           is SpeechState.Listening -> {
             _uiState.value = VoiceUiState.Listening
