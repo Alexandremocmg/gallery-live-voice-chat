@@ -18,8 +18,7 @@ data class SpeechRecognitionResult(
 object SpeechReviewPolicy {
   const val LOW_CONFIDENCE_THRESHOLD = 0.55f
 
-  fun shouldReview(result: SpeechRecognitionResult): Boolean {
-    val confidence = result.confidenceScores.firstOrNull() ?: return false
-    return confidence >= 0f && confidence < LOW_CONFIDENCE_THRESHOLD
-  }
+  // Voice chat is continuous by default. Recognition mistakes are corrected later through
+  // the persisted message action "Editar e reenviar", never through a blocking review step.
+  fun shouldReview(@Suppress("UNUSED_PARAMETER") result: SpeechRecognitionResult): Boolean = false
 }

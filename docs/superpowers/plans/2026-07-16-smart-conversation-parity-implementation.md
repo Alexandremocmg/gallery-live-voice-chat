@@ -17,7 +17,7 @@
 ### Entregue
 
 - linha do tempo persistida para mensagens de voz e teclado;
-- envio automático de transcrições normais e revisão manual apenas quando a confiança é baixa;
+- envio automático de toda transcrição, sem revisão bloqueante;
 - IDs persistentes de mensagem, origem `VOICE`/`TEXT` e migração determinística de sessões legadas;
 - ações contextuais centralizadas por policy: copiar, compartilhar, editar/reenviar, regenerar e ouvir novamente quando disponíveis;
 - proteção transacional de edição/regeneração por sessão, revisão e geração, incluindo rollback em falha assíncrona;
@@ -64,7 +64,7 @@ Resultados observados:
 2. **Entrada padrão:** voz continua sendo a ação primária no Kabem Voice.
 3. **Entrada alternativa:** teclado aparece por botão contextual, com opção de torná-lo o modo padrão.
 4. **Primeiras ações visíveis:** `Copiar`, `Editar` e `Mais`.
-5. **Conversa contínua:** o resultado final do reconhecimento é enviado automaticamente; a revisão não interrompe o fluxo normal.
+5. **Conversa contínua:** o resultado final do reconhecimento é sempre enviado automaticamente; correções são feitas depois pelo menu da mensagem.
 6. **Ações em `Mais`:** regenerar, compartilhar, ouvir novamente, salvar na memória e remover/ramificar.
 7. **Edição de mensagem:** ao editar uma mensagem do usuário, as respostas posteriores devem ser invalidadas ou tratadas como uma nova ramificação; nunca manter uma resposta antiga como se ainda correspondesse à pergunta editada.
 8. **Download/recursos:** esta entrega não deve iniciar downloads automáticos de modelos; o planner de capacidades será integrado em uma etapa separada.
@@ -76,7 +76,8 @@ Resultados observados:
 
 - O usuário consegue iniciar uma conversa por voz como hoje, sem abrir o teclado.
 - O usuário consegue alternar para teclado e enviar uma mensagem textual no mesmo histórico.
-- O usuário consegue revisar uma transcrição quando o reconhecimento indicar baixa confiança.
+- Toda fala reconhecida é enviada automaticamente, sem etapa obrigatória de revisão.
+- Se a transcrição estiver incorreta, o usuário pode usar `Editar e reenviar` na mensagem persistida.
 - Mensagens do usuário e do assistente aparecem em uma linha do tempo rolável e persistente.
 - Uma resposta finalizada pode ser copiada, selecionada e compartilhada.
 - Uma mensagem do usuário pode ser editada e reenviada sem deixar respostas incompatíveis no histórico ativo.
@@ -218,8 +219,8 @@ A política deve considerar:
 **Implementação:**
 
 - Expor no `VoiceViewModel` um `StateFlow<List<ConversationUiMessage>>` derivado de `sessionMessages`.
-- Atualizar a lista quando uma transcrição é confirmada, quando a geração inicia, quando a resposta termina e quando ocorre erro/cancelamento.
-- Manter o texto reconhecido em estado separado apenas durante a captura/revisão; depois do envio, a fonte visual deve ser a lista de mensagens.
+- Atualizar a lista quando uma transcrição é enviada, quando a geração inicia, quando a resposta termina e quando ocorre erro/cancelamento.
+- Manter o texto reconhecido em estado separado apenas durante a captura; depois do envio, a fonte visual deve ser a lista de mensagens.
 - Fazer a lista rolar automaticamente para a última mensagem sem impedir rolagem manual.
 - Manter o cartão de estado da voz (`ouvindo`, `pensando`, `falando`) fora da lista.
 
@@ -236,7 +237,7 @@ A política deve considerar:
 
 ---
 
-## Fase 2 — Entrada textual e revisão de voz
+## Fase 2 — Entrada textual e correção posterior da voz
 
 ### Task 2.1: Criar a barra de entrada híbrida
 
@@ -265,9 +266,9 @@ A política deve considerar:
 
 ---
 
-### Task 2.2: Implementar revisão de transcrição
+### Task 2.2: Implementar envio contínuo com correção posterior
 
-**Objetivo:** Manter a conversa contínua, enviando automaticamente transcrições confiáveis e oferecendo correção quando o reconhecimento estiver incerto.
+**Objetivo:** Manter a conversa contínua, enviando toda transcrição automaticamente e permitindo correção posterior pela ação contextual da mensagem.
 
 **Arquivos:**
 - Modificar: `Android/src/app/src/main/java/com/google/ai/edge/gallery/voice/presentation/LiveChatScreen.kt`
@@ -279,23 +280,23 @@ A política deve considerar:
 
 ```text
 LISTENING → GENERATING → SPEAKING
-     └─ baixa confiança → TRANSCRIPT_REVIEW → GENERATING
+     └─ erro percebido depois → EDIT_AND_RESEND → GENERATING
 ```
 
 **Implementação:**
 
-- Criar `SpeechReviewPolicy` com limiar de baixa confiança (`0.55`).
-- Usar revisão automática somente se houver score de confiança disponível e abaixo do limiar; caso não haja, enviar automaticamente.
-- Exibir `Você disse:` com `Editar`, `Enviar` e `Descartar`.
-- Para reconhecimento confiável, enviar a transcrição diretamente ao runtime sem exibir a barra de revisão.
-- Nunca adicionar uma transcrição em revisão ao runtime antes de `Enviar`.
-- Se o usuário tocar no microfone enquanto revisa, preservar o texto ou solicitar descarte explícito.
+- Manter `SpeechReviewPolicy` sem revisão bloqueante no fluxo de voz contínua.
+- Enviar o resultado reconhecido diretamente ao runtime, independentemente do score de confiança.
+- Persistir a mensagem do usuário antes da resposta para que o menu contextual ofereça `Editar e reenviar`.
+- Ao editar, invalidar de forma transacional a resposta e os turnos posteriores antes de gerar novamente.
+- Não abrir teclado ou formulário intermediário ao terminar o reconhecimento de voz.
+- Manter a ação `Editar e reenviar` disponível no menu contextual de mensagens textuais seguras.
 
 **Verificação:**
 
-- Corrigir erro de transcrição e confirmar que somente o texto corrigido chega ao modelo.
-- Descartar transcrição e confirmar que nenhum turno é persistido.
-- Reiniciar o app durante revisão e confirmar que a revisão pendente não vira mensagem enviada.
+- Confirmar que resultados com confiança baixa também são enviados automaticamente.
+- Editar uma transcrição incorreta pela mensagem persistida e confirmar que somente o ramo corrigido permanece ativo.
+- Reiniciar o app depois do envio e confirmar que a mensagem de voz não é duplicada.
 
 ---
 
@@ -477,7 +478,6 @@ A preferência não deve alterar o funcionamento offline nem iniciar downloads.
 ```text
 IDLE
 LISTENING
-TRANSCRIPT_REVIEW
 EDITING_MESSAGE
 GENERATING
 SPEAKING
@@ -490,7 +490,7 @@ ERROR
 - abrir teclado durante fala;
 - editar durante streaming;
 - iniciar nova sessão durante TTS;
-- cancelar revisão;
+- editar uma transcrição incorreta após a resposta;
 - perder foco ou sair da tela;
 - trocar de modelo durante conversa.
 
@@ -529,8 +529,8 @@ Cada transição inválida deve ser ignorada de forma segura ou gerar uma ação
 | Cenário | Resultado esperado |
 |---|---|
 | Voz → resposta → copiar | Texto correto no clipboard e Snackbar |
-| Voz → reconhecimento confiável | Texto é enviado automaticamente ao modelo |
-| Voz → baixa confiança → editar transcrição → enviar | Somente texto corrigido chega ao modelo |
+| Voz → qualquer nível de confiança | Texto é enviado automaticamente ao modelo |
+| Transcrição incorreta → Editar e reenviar | Histórico é corrigido e a resposta é gerada novamente |
 | Teclado → enviar | Mensagem entra na mesma linha do tempo |
 | Toque longo na resposta | Menu contextual aparece |
 | Selecionar resposta | Seleção funciona sem copiar automaticamente |

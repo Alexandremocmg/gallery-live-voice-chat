@@ -1,7 +1,6 @@
 package com.google.ai.edge.gallery.voice.language
 
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpeechReviewPolicyTest {
@@ -18,8 +17,8 @@ class SpeechReviewPolicyTest {
   }
 
   @Test
-  fun lowConfidenceKeepsManualReview() {
-    assertTrue(
+  fun lowConfidenceStillUsesContinuousConversation() {
+    assertFalse(
       SpeechReviewPolicy.shouldReview(
         result.copy(confidenceScores = listOf(SpeechReviewPolicy.LOW_CONFIDENCE_THRESHOLD - 0.01f)),
       ),

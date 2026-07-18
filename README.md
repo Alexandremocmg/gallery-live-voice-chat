@@ -74,7 +74,7 @@ For users without Google Play access, install the apk from the [**latest release
 
 *   **Voz e teclado no mesmo histórico:** alterne o modo de entrada sem criar uma conversa paralela.
 *   **Conversa contínua:** a fala é enviada automaticamente após o silêncio indicar o fim do turno, sem tela intermediária.
-*   **Revisão inteligente:** transcrições com baixa confiança entram em revisão; as demais seguem direto para o modelo.
+*   **Correção sem interromper a conversa:** toda fala segue direto para o modelo; se a transcrição estiver errada, use **Editar e reenviar** no menu da mensagem.
 *   **Retorno automático:** depois que o Kabem termina de falar, ele volta a ouvir para manter o ritmo de uma conversa natural.
 *   **Ações contextuais:** toque longo ou menu de overflow para copiar, compartilhar, editar, regenerar ou reproduzir respostas, conforme a policy e as capacidades disponíveis.
 *   **Histórico resiliente:** mensagens possuem IDs persistentes, migração de sessões legadas, revisão monotônica e rollback de edições que falhem.
