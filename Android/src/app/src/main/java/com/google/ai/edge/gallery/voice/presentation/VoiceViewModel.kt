@@ -3,6 +3,7 @@ package com.google.ai.edge.gallery.voice.presentation
 import android.graphics.Bitmap
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -41,7 +42,9 @@ import com.google.ai.edge.gallery.voice.pedagogy.TeachingAction
 import com.google.ai.edge.gallery.voice.pedagogy.TeachingOrchestrator
 import com.google.ai.edge.gallery.voice.pedagogy.TeachingPromptBuilder
 import com.google.ai.edge.gallery.voice.pedagogy.TeachingState
-import com.google.ai.edge.gallery.voice.language.BilingualResponseParser
+import com.google.ai.edge.gallery.voice.language.BilingualSpeechSegmenter
+import com.google.ai.edge.gallery.voice.language.ConversationLanguageCoordinator
+import com.google.ai.edge.gallery.voice.language.ConversationLanguagePersistencePolicy
 import com.google.ai.edge.gallery.voice.language.EnglishActivity
 import com.google.ai.edge.gallery.voice.language.EnglishLessonDecision
 import com.google.ai.edge.gallery.voice.language.EnglishLessonIntent
@@ -49,7 +52,11 @@ import com.google.ai.edge.gallery.voice.language.EnglishLessonOrchestrator
 import com.google.ai.edge.gallery.voice.language.EnglishLessonState
 import com.google.ai.edge.gallery.voice.language.EnglishTeachingPromptBuilder
 import com.google.ai.edge.gallery.voice.language.IntelligibilityAnalyzer
+import com.google.ai.edge.gallery.voice.language.LanguageConfidence
+import com.google.ai.edge.gallery.voice.language.LanguageInstructionBuilder
+import com.google.ai.edge.gallery.voice.language.RecognitionLanguagePolicy
 import com.google.ai.edge.gallery.voice.language.SpeechChunk
+import com.google.ai.edge.gallery.voice.language.SpeechLanguageDetection
 import com.google.ai.edge.gallery.voice.language.SpeechLocale
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionResult
 import com.google.ai.edge.gallery.voice.language.SpeechReviewPolicy
@@ -112,6 +119,8 @@ class VoiceViewModel(
       initialConnectivityMode = modelManagerViewModel.readConnectivityMode(),
     )
   private val pronunciationRecorder = VoiceAudioRecorder()
+  private val conversationLanguageCoordinator = ConversationLanguageCoordinator()
+  private val languageInstructionBuilder = LanguageInstructionBuilder()
 
   private val _uiState = MutableStateFlow<VoiceUiState>(VoiceUiState.Idle)
   val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
@@ -154,8 +163,13 @@ class VoiceViewModel(
   private val _activeSpeechLocale = MutableStateFlow(SpeechLocale.PT_BR)
   val activeSpeechLocale: StateFlow<SpeechLocale> = _activeSpeechLocale.asStateFlow()
 
+  private val _automaticLanguageSwitchingEnabled = MutableStateFlow(false)
+  val automaticLanguageSwitchingEnabled: StateFlow<Boolean> =
+    _automaticLanguageSwitchingEnabled.asStateFlow()
+
   val voiceNotice: StateFlow<String?> = voiceChatManager.voiceNotice
   val speechCapabilities = voiceChatManager.speechCapabilities
+  val localTtsAvailabilityKnown = voiceChatManager.localTtsAvailabilityKnown
 
   private val _attachedImages = MutableStateFlow<List<Bitmap>>(emptyList())
   val attachedImages: StateFlow<List<Bitmap>> = _attachedImages.asStateFlow()
@@ -357,13 +371,13 @@ class VoiceViewModel(
       voiceChatManager.speechState.collectLatest { state ->
         when (state) {
           is SpeechState.ResultReady -> {
+            _automaticLanguageSwitchingEnabled.value = false
             _recognizedText.value = state.result.text
-            _activeSpeechLocale.value = state.result.locale
             if (SpeechReviewPolicy.shouldReview(state.result)) {
               _uiState.value = VoiceUiState.ReviewingTranscript(state.result.text)
               conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
             } else {
-              submitText(state.result.text, ConversationMessageSource.VOICE)
+              submitRecognitionResult(state.result, ConversationMessageSource.VOICE)
             }
           }
           is SpeechState.Listening -> {
@@ -371,18 +385,22 @@ class VoiceViewModel(
             conversationStateMachine.transitionTo(VoiceConversationPhase.LISTENING)
           }
           is SpeechState.Processing -> {
+            _automaticLanguageSwitchingEnabled.value = false
             _uiState.value = VoiceUiState.Generating
           }
           is SpeechState.Speaking -> {
+            _automaticLanguageSwitchingEnabled.value = false
             _uiState.value = VoiceUiState.Speaking
             conversationStateMachine.transitionTo(VoiceConversationPhase.SPEAKING)
           }
           is SpeechState.Error -> {
+            _automaticLanguageSwitchingEnabled.value = false
             Log.e("VoiceViewModel", "Speech Recognizer Error: ${state.message}")
             _uiState.value = VoiceUiState.Idle
             conversationStateMachine.transitionTo(VoiceConversationPhase.FAILED)
           }
           is SpeechState.Idle -> {
+            _automaticLanguageSwitchingEnabled.value = false
             if (_uiState.value is VoiceUiState.Speaking && !responseGenerationInProgress.get()) {
               _uiState.value = VoiceUiState.Idle
               kotlinx.coroutines.delay(800)
@@ -429,8 +447,18 @@ class VoiceViewModel(
     val model = activeModel
     if (model != null && modelManagerViewModel.uiState.value.isModelInitialized(model)) {
       _recognizedText.value = ""
-      val locale = englishState.nextInputLocale
+      val listeningLocale = conversationLanguageCoordinator.nextListeningLocale(englishState)
+      val recognitionRequest =
+        RecognitionLanguagePolicy.create(
+          apiLevel = Build.VERSION.SDK_INT,
+          establishedLocale = listeningLocale,
+          englishDialect = englishState.dialect,
+          capabilities = voiceChatManager.speechCapabilities.value,
+          englishActivity = englishState.activity,
+        )
+      val locale = recognitionRequest.primaryLocale
       _activeSpeechLocale.value = locale
+      _automaticLanguageSwitchingEnabled.value = recognitionRequest.switchingEnabled
       if (englishState.activity == EnglishActivity.REPEAT && model.llmSupportAudio) {
         _uiState.value = VoiceUiState.Listening
         pronunciationRecorder.start(
@@ -442,6 +470,8 @@ class VoiceViewModel(
                   text = "Tentativa de pronuncia em audio",
                   locale = locale,
                   backend = RecognitionBackend.GEMMA_AUDIO,
+                  languageDetection =
+                    SpeechLanguageDetection(locale, LanguageConfidence.HIGH),
                 )
               _recognizedText.value = "Tentativa de pronuncia gravada"
               _uiState.value = VoiceUiState.Generating
@@ -457,10 +487,7 @@ class VoiceViewModel(
         )
         return
       }
-      voiceChatManager.startListening(
-        locale = locale,
-        allowBilingualSwitch = englishState.activity == EnglishActivity.FREE_CONVERSATION,
-      )
+      voiceChatManager.startListening(recognitionRequest)
     }
   }
 
@@ -520,8 +547,22 @@ class VoiceViewModel(
   private fun submitText(
     text: String,
     source: ConversationMessageSource,
+  ): Boolean =
+    submitRecognitionResult(
+      result =
+        SpeechRecognitionResult(
+          text = text,
+          locale = conversationLanguageCoordinator.establishedLocale,
+          backend = RecognitionBackend.ANDROID_SYSTEM,
+        ),
+      source = source,
+    )
+
+  private fun submitRecognitionResult(
+    result: SpeechRecognitionResult,
+    source: ConversationMessageSource,
   ): Boolean {
-    val normalized = text.trim()
+    val normalized = result.text.trim()
     // VoiceChatManager reports SpeechState.Processing while it waits for the final ASR result.
     // That is not model generation, so VoiceUiState.Generating must not block this submission.
     if (!canSubmitConversationTurn(
@@ -536,11 +577,7 @@ class VoiceViewModel(
     _uiState.value = VoiceUiState.Generating
     conversationStateMachine.transitionTo(VoiceConversationPhase.THINKING)
     generateResponse(
-      SpeechRecognitionResult(
-        text = normalized,
-        locale = _activeSpeechLocale.value,
-        backend = RecognitionBackend.ANDROID_SYSTEM,
-      ),
+      result.copy(text = normalized),
       source = source,
     )
     return responseGenerationInProgress.get()
@@ -806,7 +843,9 @@ class VoiceViewModel(
     teachingState = TeachingState()
     englishState = EnglishLessonState(dialect = englishState.dialect)
     _englishLessonState.value = englishState
+    conversationLanguageCoordinator.reset()
     _activeSpeechLocale.value = SpeechLocale.PT_BR
+    _automaticLanguageSwitchingEnabled.value = false
     lastTurnContext = null
     activeSkillId = null
     _activeSkill.value = null
@@ -1011,6 +1050,25 @@ class VoiceViewModel(
     val profileSelection = responseDepthClassifier.select(lastTurnContext?.profile, prompt)
     val teachingDecision = teachingOrchestrator.decide(teachingState, prompt)
     val englishDecision = englishLessonOrchestrator.decide(englishState, prompt)
+    val languageDecision =
+      conversationLanguageCoordinator.resolveTurn(
+        result = recognitionResult,
+        englishDialect = englishDecision.nextState.dialect,
+        englishLessonDecision = englishDecision,
+      )
+    _activeSpeechLocale.value = languageDecision.responseLocale
+    Log.d(
+      "VoiceViewModel",
+      "Turn language: input=${languageDecision.inputLocale.languageTag}, " +
+        "response=${languageDecision.responseLocale.languageTag}, " +
+        "mode=${languageDecision.responseMode}, source=${languageDecision.source}, " +
+        "confidence=${languageDecision.confidence}",
+    )
+    val languageInstruction =
+      languageInstructionBuilder.build(
+        decision = languageDecision,
+        englishDialect = englishDecision.nextState.dialect,
+      )
     val skillActivation =
       skillEngine.resolve(
         text = prompt,
@@ -1101,6 +1159,7 @@ class VoiceViewModel(
           listOf(
             nativeHistoryForBudget,
             prompt,
+            languageInstruction,
             teachingInstruction,
             englishInstruction,
             pdfContext.orEmpty(),
@@ -1130,6 +1189,7 @@ class VoiceViewModel(
     val wrappedPrompt =
       buildPromptWithInternalInstruction(
         profile = profile,
+        languageInstruction = languageInstruction,
         userText = prompt,
         teachingInstruction = teachingInstruction,
         englishInstruction = englishInstruction,
@@ -1138,12 +1198,28 @@ class VoiceViewModel(
         pdfContext = boundedPdfContext,
         memoryContext = boundedMemoryContext,
       )
-    val bilingualParser = BilingualResponseParser(englishDecision.baseResponseLocale)
+    val speechSegmenter =
+      BilingualSpeechSegmenter(
+        expectedResponseLocale = languageDecision.responseLocale,
+        englishDialect = englishDecision.nextState.dialect,
+      )
     var accumulatedText = ""
-    var pendingSpeechText = ""
-    var pendingSpeechLocale = englishDecision.baseResponseLocale
     val generatedEnglishText = StringBuilder()
     var hasSpokenFirstSegment = false
+
+    fun consumeValidatedChunks(chunks: List<SpeechChunk>) {
+      chunks.forEach { chunk ->
+        accumulatedText += chunk.text
+        if (chunk.locale.isEnglish) generatedEnglishText.append(chunk.text)
+        hasSpokenFirstSegment =
+          speakStreamingSegment(
+            segment = chunk.text,
+            locale = chunk.locale,
+            englishDecision = englishDecision,
+            isFirstSegment = !hasSpokenFirstSegment,
+          ) || hasSpokenFirstSegment
+      }
+    }
 
     _responseProfile.value = profile
 
@@ -1220,65 +1296,11 @@ class VoiceViewModel(
               }
               return@resultListener
             }
-            val parsedChunks = bilingualParser.append(partialResult).chunks
-            parsedChunks.forEach { chunk ->
-              accumulatedText += chunk.text
-              if (chunk.locale.isEnglish) generatedEnglishText.append(chunk.text)
-              if (pendingSpeechText.isNotBlank() && chunk.locale != pendingSpeechLocale) {
-                hasSpokenFirstSegment =
-                  speakStreamingSegment(
-                    pendingSpeechText,
-                    pendingSpeechLocale,
-                    englishDecision,
-                    isFirstSegment = !hasSpokenFirstSegment,
-                  ) || hasSpokenFirstSegment
-                pendingSpeechText = ""
-              }
-              pendingSpeechLocale = chunk.locale
-              pendingSpeechText += chunk.text
-              val completeSegments = drainCompleteSentences(pendingSpeechText)
-              pendingSpeechText = completeSegments.remainingText
-              completeSegments.sentences.forEach { segment ->
-                hasSpokenFirstSegment =
-                  speakStreamingSegment(
-                    segment,
-                    pendingSpeechLocale,
-                    englishDecision,
-                    isFirstSegment = !hasSpokenFirstSegment,
-                  ) || hasSpokenFirstSegment
-              }
-            }
+            consumeValidatedChunks(speechSegmenter.append(partialResult).chunks)
 
             if (done) {
               releasePdfBitmapLease(pdfBitmapLease)
-              bilingualParser.finish().chunks.forEach { chunk ->
-                accumulatedText += chunk.text
-                if (chunk.locale.isEnglish) generatedEnglishText.append(chunk.text)
-                if (pendingSpeechText.isNotBlank() && chunk.locale != pendingSpeechLocale) {
-                  hasSpokenFirstSegment =
-                    speakStreamingSegment(
-                      pendingSpeechText,
-                      pendingSpeechLocale,
-                      englishDecision,
-                      isFirstSegment = !hasSpokenFirstSegment,
-                    ) || hasSpokenFirstSegment
-                  pendingSpeechText = ""
-                }
-                pendingSpeechLocale = chunk.locale
-                pendingSpeechText += chunk.text
-              }
-              val finalSegment = pendingSpeechText.trim()
-              if (finalSegment.isNotBlank()) {
-                hasSpokenFirstSegment =
-                  speakStreamingSegment(
-                    finalSegment,
-                    pendingSpeechLocale,
-                    englishDecision,
-                    isFirstSegment = !hasSpokenFirstSegment,
-                  ) ||
-                    hasSpokenFirstSegment
-                pendingSpeechText = ""
-              }
+              consumeValidatedChunks(speechSegmenter.finish().chunks)
 
               viewModelScope.launch(Dispatchers.Main) {
                 if (
@@ -1305,7 +1327,8 @@ class VoiceViewModel(
                       generatedEnglishText.toString(),
                     )
                   _englishLessonState.value = englishState
-                  _activeSpeechLocale.value = englishState.nextInputLocale
+                  _activeSpeechLocale.value =
+                    conversationLanguageCoordinator.nextListeningLocale(englishState)
                   lastTurnContext =
                     TurnContext(
                       profile = profile,
@@ -1319,7 +1342,7 @@ class VoiceViewModel(
                 if (!hasSpokenFirstSegment && accumulatedText.isNotBlank()) {
                   _uiState.value = VoiceUiState.Speaking
                   voiceChatManager.speak(
-                    SpeechChunk(accumulatedText, englishDecision.baseResponseLocale),
+                    SpeechChunk(accumulatedText, languageDecision.responseLocale),
                   )
                 } else if (voiceChatManager.speechState.value is SpeechState.Idle) {
                   _uiState.value = VoiceUiState.Idle
@@ -1393,6 +1416,7 @@ class VoiceViewModel(
 
   private fun buildPromptWithInternalInstruction(
     profile: ResponseDepthProfile,
+    languageInstruction: String,
     userText: String,
     teachingInstruction: String,
     englishInstruction: String,
@@ -1402,6 +1426,7 @@ class VoiceViewModel(
     memoryContext: String,
   ): String {
     return buildString {
+      appendLine(languageInstruction)
       appendLine("[INSTRUCAO INTERNA DE ESTILO]")
       appendLine(profile.internalInstruction)
       if (teachingInstruction.isNotBlank()) {
@@ -1456,31 +1481,6 @@ class VoiceViewModel(
       decision.nextState.expectedPhrase
         ?: cleanTarget?.takeIf { shouldCaptureTarget && it.isNotBlank() }
     return decision.nextState.copy(expectedPhrase = target)
-  }
-
-  private fun drainCompleteSentences(text: String): SentenceDrainResult {
-    if (text.isBlank()) {
-      return SentenceDrainResult(emptyList(), text)
-    }
-
-    val sentences = mutableListOf<String>()
-    var sentenceStart = 0
-    var index = 0
-    while (index < text.length) {
-      val char = text[index]
-      if (char == '.' || char == '!' || char == '?') {
-        val end = index + 1
-        val sentence = text.substring(sentenceStart, end).trim()
-        if (sentence.isNotBlank()) {
-          sentences.add(sentence)
-        }
-        sentenceStart = end
-      }
-      index++
-    }
-
-    val remaining = text.substring(sentenceStart).trimStart()
-    return SentenceDrainResult(sentences, remaining)
   }
 
   private fun summarizeForTurnContext(text: String): String {
@@ -1641,7 +1641,15 @@ class VoiceViewModel(
         attemptCount = session.voiceEnglishAttemptCount,
       )
     _englishLessonState.value = englishState
-    _activeSpeechLocale.value = englishState.nextInputLocale
+    _automaticLanguageSwitchingEnabled.value = false
+    conversationLanguageCoordinator.reset(
+      ConversationLanguagePersistencePolicy.restore(
+        persistedLanguageTag = session.voiceConversationLocale,
+        englishLessonState = englishState,
+      )
+    )
+    _activeSpeechLocale.value =
+      conversationLanguageCoordinator.nextListeningLocale(englishState)
     activeSkillId = session.voiceActiveSkillId.takeIf { it.isNotBlank() }
       ?: if (englishState.active) com.google.ai.edge.gallery.voice.skills.KabemBuiltInSkills.ENGLISH_TEACHER_ID else null
     _activeSkill.value = skillEngine.get(activeSkillId)
@@ -1698,6 +1706,7 @@ class VoiceViewModel(
       _uiState.value = VoiceUiState.Idle
     }
     if (session.voiceSchemaVersion < VOICE_CONVERSATION_SCHEMA_VERSION ||
+      session.voiceConversationLocale.isBlank() ||
       migratedMessages != session.messagesList.takeLast(MAX_SAVED_SESSION_MESSAGES)
     ) {
       sessionRevision++
@@ -1813,6 +1822,7 @@ class VoiceViewModel(
       .setVoiceEnglishDemonstrationRate(englishState.demonstrationRate)
       .setVoiceEnglishAttemptCount(englishState.attemptCount)
       .setVoiceContextSummary(rollingContextSummary)
+      .setVoiceConversationLocale(conversationLanguageCoordinator.establishedLocale.languageTag)
       .setVoiceSchemaVersion(VOICE_CONVERSATION_SCHEMA_VERSION)
       .setVoiceRevision(sessionRevision)
       .addAllMessages(messages)
@@ -1909,11 +1919,6 @@ private data class PendingConversationRewrite(
 private data class TurnContext(
   val profile: ResponseDepthProfile,
   val assistantSummary: String,
-)
-
-private data class SentenceDrainResult(
-  val sentences: List<String>,
-  val remainingText: String,
 )
 
 private class BitmapLease(

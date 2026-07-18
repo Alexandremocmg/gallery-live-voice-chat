@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.os.Build
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
@@ -63,8 +65,9 @@ import com.google.ai.edge.gallery.voice.data.MemoryCandidate
 import com.google.ai.edge.gallery.voice.data.MemoryCategory
 import com.google.ai.edge.gallery.voice.data.MemoryItem
 import com.google.ai.edge.gallery.voice.data.ResponseDepthProfile
-import com.google.ai.edge.gallery.voice.language.EnglishActivity
 import com.google.ai.edge.gallery.voice.language.LanguagePackStatus
+import com.google.ai.edge.gallery.voice.language.SpeechReadinessNoticeKind
+import com.google.ai.edge.gallery.voice.language.SpeechReadinessPolicy
 import com.google.ai.edge.gallery.voice.intelligence.CognitiveMode
 import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 import kotlinx.coroutines.Dispatchers
@@ -215,8 +218,11 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val connectivityMode by viewModel.connectivityMode.collectAsState()
     val englishLessonState by viewModel.englishLessonState.collectAsState()
     val activeSpeechLocale by viewModel.activeSpeechLocale.collectAsState()
+    val automaticLanguageSwitchingEnabled by
+        viewModel.automaticLanguageSwitchingEnabled.collectAsState()
     val voiceNotice by viewModel.voiceNotice.collectAsState()
     val speechCapabilities by viewModel.speechCapabilities.collectAsState()
+    val localTtsAvailabilityKnown by viewModel.localTtsAvailabilityKnown.collectAsState()
     val attachedImages by viewModel.attachedImages.collectAsState()
     val attachedAudioName by viewModel.attachedAudioName.collectAsState()
     val imageSupport by viewModel.imageSupport.collectAsState()
@@ -224,6 +230,18 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val pdfLoading by viewModel.pdfLoading.collectAsState()
     val pdfError by viewModel.pdfError.collectAsState()
     val pendingMemory by viewModel.pendingMemory.collectAsState()
+    val speechReadiness = remember(
+        speechCapabilities,
+        englishLessonState.dialect,
+        localTtsAvailabilityKnown,
+    ) {
+        SpeechReadinessPolicy.evaluate(
+            apiLevel = Build.VERSION.SDK_INT,
+            capabilities = speechCapabilities,
+            englishDialect = englishLessonState.dialect,
+            localTtsAvailabilityKnown = localTtsAvailabilityKnown,
+        )
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.actionNotices.collect { snackbarHostState.showSnackbar(it) }
@@ -338,11 +356,12 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 enabled = false,
                 label = {
                     Text(
-                        if (englishLessonState.activity == EnglishActivity.REPEAT) {
-                            "Repeticao"
-                        } else {
-                            activeSpeechLocale.shortLabel
-                        }
+                        SpeechReadinessPolicy.languageIndicatorLabel(
+                            locale = activeSpeechLocale,
+                            automaticSwitchingActive =
+                                uiState is VoiceUiState.Listening &&
+                                    automaticLanguageSwitchingEnabled,
+                        )
                     )
                 },
             )
@@ -375,16 +394,66 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             )
         }
 
-        if (!voiceNotice.isNullOrBlank()) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = voiceNotice.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (englishLessonState.active) {
+        val hasMissingLocalVoice = speechReadiness.notices.any {
+            it.kind == SpeechReadinessNoticeKind.LOCAL_TTS_VOICE_MISSING
+        }
+        val runtimeVoiceNotice = voiceNotice?.contains("voz", ignoreCase = true) == true
+        if (!voiceNotice.isNullOrBlank() || speechReadiness.notices.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (!voiceNotice.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = voiceNotice.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                speechReadiness.notices.forEach { notice ->
+                    val ready = notice.kind == SpeechReadinessNoticeKind.READY
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector =
+                                if (ready) Icons.Default.CheckCircle else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint =
+                                if (ready) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = notice.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                if (hasMissingLocalVoice || runtimeVoiceNotice) {
                     TextButton(
                         onClick = {
                             runCatching {

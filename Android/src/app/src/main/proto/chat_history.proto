@@ -114,4 +114,6 @@ message ChatSessionProto {
   int32 voice_schema_version = 20;
   // Monotonic revision. Older snapshots must never overwrite newer ones.
   int64 voice_revision = 21;
+  // Language established by the conversation outside explicit lesson activities.
+  string voice_conversation_locale = 22;
 }

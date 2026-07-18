@@ -1,8 +1,37 @@
 # Kabem Voice: Plano de Implementacao do Professor de Ingles Bilingue
 
 **Data:** 2026-07-15  
-**Status:** pronto para implementacao  
+**Status:** implementação principal concluída; validação em aparelho pendente
 **Escopo:** fala e escuta em portugues e ingles, pratica de pronuncia e operacao local
+
+## Status de implementação em 2026-07-18
+
+O núcleo bilíngue foi implementado como infraestrutura compartilhada entre a conversa comum e o Professor de Inglês. A decisão de idioma não pertence mais apenas ao estado da aula: `ConversationLanguageCoordinator` e `LanguageTurnResolver` combinam comando explícito, metadados do reconhecedor, análise textual e idioma estabelecido na sessão.
+
+Fluxo implementado:
+
+```text
+SpeechRecognizer / texto digitado
+  -> RecognitionLanguagePolicy
+  -> ConversationLanguageCoordinator
+  -> LanguageTurnResolver
+  -> LanguageInstructionBuilder
+  -> Gemma (uma inferência)
+  -> BilingualSpeechSegmenter
+  -> TTS local por bloco validado
+```
+
+Também estão concluídos:
+
+- reconhecimento dinâmico `pt-BR`, `en-US` e `en-GB`;
+- troca automática no Android 14+ somente com os dois pacotes instalados;
+- explicação em português e demonstração em inglês no mesmo streaming;
+- bloqueio de fallback TTS entre idiomas e de vozes que exigem rede;
+- persistência do idioma da conversa e restauração de sessões legadas;
+- chip de idioma e avisos distintos para reconhecimento, voz local e troca automática;
+- diagnóstico por metadados sem registrar áudio ou texto privado.
+
+O Pacote Inglês Offline separado para aparelhos sem ASR local continua fora do escopo atual. Em Android 12 e 13, o aplicativo mantém um idioma de reconhecimento por turno. A matriz em aparelho e modo avião permanece pendente; nenhum dispositivo estava conectado ao ADB nesta revisão.
 
 ## 1. Objetivo
 
@@ -443,4 +472,3 @@ Pacote ASR local cobre aparelhos sem reconhecimento on-device adequado.
 - Gemma 3n audio: https://ai.google.dev/gemma/docs/gemma-3n
 - LiteRT-LM multimodal Kotlin: https://github.com/google-ai-edge/LiteRT-LM/blob/main/docs/api/kotlin/getting_started.md
 - Sherpa-ONNX Android: https://k2-fsa.github.io/sherpa/onnx/android/prebuilt-apk.html
-

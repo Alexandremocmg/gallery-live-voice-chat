@@ -1,0 +1,15 @@
+{
+  "id": "ep-2026-07-18-001",
+  "timestamp": "2026-07-18T00:00:00-03:00",
+  "skill": "brainstorming",
+  "situation": "Implemented an approved Android bilingual voice-routing phase across recognition, prompting and streaming TTS.",
+  "outcome": "success",
+  "solution": "Preserved domain-safe recognition metadata to the generation boundary and resolved one immutable language decision per turn through a pure state coordinator.",
+  "lesson": "When several pipeline stages need the same inferred state, preserve source metadata and pass one tested domain decision through every stage instead of re-inferring locally.",
+  "validation": {
+    "unit_tests": 119,
+    "failures": 0,
+    "apk_built": true
+  },
+  "privacy": "No audio or user transcript content was stored."
+}

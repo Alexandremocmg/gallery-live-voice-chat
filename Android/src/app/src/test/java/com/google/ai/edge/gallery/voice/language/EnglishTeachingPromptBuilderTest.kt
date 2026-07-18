@@ -7,18 +7,28 @@ import org.junit.Test
 class EnglishTeachingPromptBuilderTest {
   private val builder = EnglishTeachingPromptBuilder()
 
-  @Test fun `bilingual lesson requires explicit language tags`() {
+  @Test
+  fun bilingualLessonContainsPedagogyWithoutLanguageMarkers() {
     val decision = EnglishLessonOrchestrator().decide(EnglishLessonState(), "Quero aprender ingles")
+
     val prompt = builder.build(decision)
-    assertTrue(prompt.contains("[[pt-BR]]"))
-    assertTrue(prompt.contains("[[en-US]]"))
+
+    assertTrue(prompt.contains("ORIENTACAO PEDAGOGICA"))
+    assertTrue(prompt.contains("pequeno bloco"))
+    assertFalse(prompt.contains("[["))
+    assertFalse(prompt.contains("Responda somente"))
   }
 
-  @Test fun `free conversation stays entirely in selected English dialect`() {
+  @Test
+  fun freeConversationKeepsPedagogyAndSelectedDialect() {
     val state = EnglishLessonState(dialect = SpeechLocale.EN_GB)
     val decision = EnglishLessonOrchestrator().decide(state, "Vamos conversar em ingles")
+
     val prompt = builder.build(decision)
-    assertTrue(prompt.contains("Responda somente em ingles"))
-    assertFalse(prompt.contains("Marque CADA trecho"))
+
+    assertTrue(prompt.contains("Dialeto de ensino: en-GB"))
+    assertTrue(prompt.contains("conversa natural"))
+    assertFalse(prompt.contains("marcador", ignoreCase = true))
+    assertFalse(prompt.contains("Responda somente"))
   }
 }

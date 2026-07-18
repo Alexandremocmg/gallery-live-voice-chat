@@ -328,6 +328,40 @@ Update:
 - `docs/superpowers/plans/2026-07-15-bilingual-english-teacher-implementation.md` with the new shared language router;
 - this plan with final test counts and device results.
 
+## Phase 8 Results — 2026-07-18
+
+### Automated validation
+
+- `:app:testDebugUnitTest`: **149 tests, 0 failures, 0 errors, 0 skipped**.
+- `:app:assembleDebug`: successful.
+- APK: `Android/src/app/build/outputs/apk/debug/app-debug.apk`.
+
+The suite covers language resolution, recognition policy, bilingual streaming segmentation, TTS safety and queue order, session language persistence, readiness notices and the existing voice features.
+
+### Diagnostic and privacy audit
+
+The required diagnostic events are available without logging conversation content:
+
+| Event | Safe metadata |
+|---|---|
+| Recognition request | primary locale, detection enabled, switching enabled |
+| Android language detection | detected locale, confidence, switching result |
+| Final language decision | input locale, response locale, mode, source, confidence |
+| Validated TTS chunk | locale, character count, speech rate |
+| Missing resources | locale, pack status or local voice availability |
+
+No diagnostic event writes raw audio, partial model output, recognized transcript, persisted message content or the text sent to TTS. Audio remains temporary and is released through the existing recorder lifecycle.
+
+### Device validation
+
+**Status: pending.** `adb devices -l` returned no connected devices on 2026-07-18, so no physical result was inferred or marked as passed. The specification's matrix must still be run on:
+
+- Android 14+ with both offline recognition packs;
+- Android 14+ without the English pack;
+- Android 12 or 13 without platform language switching;
+- separate Portuguese and English local TTS voice configurations;
+- Portuguese/English explicit switches, English Teacher activities and barge-in in both languages.
+
 ## Implementation Order
 
 1. Phase 1: pure language core and tests.

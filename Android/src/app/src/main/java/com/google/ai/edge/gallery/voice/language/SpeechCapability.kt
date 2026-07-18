@@ -22,7 +22,15 @@ data class SpeechCapability(
   val languagePackStatus: LanguagePackStatus,
   val localTtsAvailable: Boolean = false,
 ) {
+  val isRecognitionReadyOffline: Boolean
+    get() =
+      backend in
+        setOf(
+          RecognitionBackend.ANDROID_ON_DEVICE,
+          RecognitionBackend.LOCAL_LANGUAGE_PACK,
+        ) &&
+        languagePackStatus == LanguagePackStatus.INSTALLED
+
   val isReadyOffline: Boolean
-    get() = backend in setOf(RecognitionBackend.ANDROID_ON_DEVICE, RecognitionBackend.LOCAL_LANGUAGE_PACK) &&
-      languagePackStatus != LanguagePackStatus.UNSUPPORTED
+    get() = isRecognitionReadyOffline && localTtsAvailable
 }

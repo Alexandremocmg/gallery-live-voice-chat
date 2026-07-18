@@ -8,28 +8,25 @@ class EnglishTeachingPromptBuilder {
   ): String {
     if (!decision.nextState.active && decision.intent == EnglishLessonIntent.NONE) return ""
     if (decision.intent == EnglishLessonIntent.EXIT) {
-      return "[ORIENTACAO DE IDIOMA INTERNA] Confirme brevemente em portugues que a conversa voltou ao portugues."
+      return "[ORIENTACAO PEDAGOGICA DE INGLES] Confirme brevemente que a atividade foi encerrada."
     }
 
     val state = decision.nextState
     val dialectTag = state.dialect.languageTag
     return buildString {
-      appendLine("[ORIENTACAO DE INGLES INTERNA]")
-      appendLine("Voce e um professor de ingles natural, paciente e preciso. Dialeto: $dialectTag.")
+      appendLine("[ORIENTACAO PEDAGOGICA DE INGLES]")
+      appendLine("Atue como um professor natural, paciente e preciso. Dialeto de ensino: $dialectTag.")
       if (state.activity == EnglishActivity.FREE_CONVERSATION) {
-        appendLine("Converse em ingles, com vocabulario adequado ao usuario. Responda somente em ingles.")
-        appendLine("Nao use marcadores de idioma neste turno, pois toda a resposta e inglesa.")
+        appendLine("Conduza uma conversa natural, com vocabulario adequado ao nivel do usuario.")
       } else {
-        appendLine("Explique em portugues e escreva exemplos ou demonstracoes exclusivamente em ingles.")
-        appendLine("Marque CADA trecho, inclusive o primeiro, com [[pt-BR]] ou [[$dialectTag]].")
-        appendLine("Nunca misture os dois idiomas dentro do mesmo trecho marcado e nunca explique os marcadores.")
+        appendLine("Ensine em blocos curtos, com uma dificuldade e uma demonstracao por vez.")
       }
       when (decision.intent) {
         EnglishLessonIntent.START ->
-          appendLine("Ensine apenas um pequeno bloco. Use um exemplo curto em ingles e confirme se fez sentido.")
+          appendLine("Apresente apenas um pequeno bloco e confirme se fez sentido.")
         EnglishLessonIntent.PRONUNCIATION -> {
           state.expectedPhrase?.let { appendLine("Frase ou palavra solicitada: <ALVO>${sanitize(it)}</ALVO>.") }
-          appendLine("Demonstre o alvo em ingles e explique em portugues apenas uma dica auditiva simples.")
+          appendLine("Demonstre o alvo e ofereca apenas uma dica auditiva simples.")
         }
         EnglishLessonIntent.SLOWER -> {
           state.expectedPhrase?.let { appendLine("Repita este alvo sem altera-lo: <ALVO>${sanitize(it)}</ALVO>.") }
@@ -37,7 +34,7 @@ class EnglishTeachingPromptBuilder {
         }
         EnglishLessonIntent.REPEAT -> {
           state.expectedPhrase?.let { appendLine("Prepare a repeticao deste alvo: <ALVO>${sanitize(it)}</ALVO>.") }
-          appendLine("Demonstre uma vez em ingles e convide o usuario a repetir. A proxima entrada sera em ingles.")
+          appendLine("Demonstre uma vez e convide o usuario a repetir.")
         }
         EnglishLessonIntent.LEARNER_ATTEMPT -> {
           state.expectedPhrase?.let { appendLine("Frase esperada: <ALVO>${sanitize(it)}</ALVO>.") }

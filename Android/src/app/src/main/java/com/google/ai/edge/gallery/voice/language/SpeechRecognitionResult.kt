@@ -6,6 +6,11 @@ data class RecognizedWord(
   val timestampMs: Long? = null,
 )
 
+data class SpeechLanguageDetection(
+  val locale: SpeechLocale,
+  val confidence: LanguageConfidence,
+)
+
 data class SpeechRecognitionResult(
   val text: String,
   val alternatives: List<String> = emptyList(),
@@ -13,6 +18,7 @@ data class SpeechRecognitionResult(
   val words: List<RecognizedWord> = emptyList(),
   val locale: SpeechLocale,
   val backend: RecognitionBackend,
+  val languageDetection: SpeechLanguageDetection? = null,
 )
 
 object SpeechReviewPolicy {
