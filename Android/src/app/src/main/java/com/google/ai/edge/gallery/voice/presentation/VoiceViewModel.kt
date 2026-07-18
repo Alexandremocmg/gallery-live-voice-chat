@@ -522,9 +522,16 @@ class VoiceViewModel(
     source: ConversationMessageSource,
   ): Boolean {
     val normalized = text.trim()
-    if (normalized.isBlank() || _uiState.value is VoiceUiState.Generating ||
-      responseGenerationInProgress.get() || activeModel == null
-    ) return false
+    // VoiceChatManager reports SpeechState.Processing while it waits for the final ASR result.
+    // That is not model generation, so VoiceUiState.Generating must not block this submission.
+    if (!canSubmitConversationTurn(
+        text = normalized,
+        responseGenerationInProgress = responseGenerationInProgress.get(),
+        hasActiveModel = activeModel != null,
+      )
+    ) {
+      return false
+    }
     _recognizedText.value = normalized
     _uiState.value = VoiceUiState.Generating
     conversationStateMachine.transitionTo(VoiceConversationPhase.THINKING)
@@ -1883,6 +1890,12 @@ sealed class VoiceUiState {
   data class Loading(val message: String) : VoiceUiState()
   data class Error(val message: String) : VoiceUiState()
 }
+
+internal fun canSubmitConversationTurn(
+  text: String,
+  responseGenerationInProgress: Boolean,
+  hasActiveModel: Boolean,
+): Boolean = text.isNotBlank() && !responseGenerationInProgress && hasActiveModel
 
 private const val RECOMMENDED_VOICE_MODEL = "Gemma-4-E2B-it"
 
