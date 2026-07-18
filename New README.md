@@ -1655,7 +1655,7 @@ Conteúdo não-textual (foto, PDF, áudio) fornecido pelo usuário como parte de
 Anexo cujos tokens ainda estão presentes no context do modelo. Diferente de anexo "arquivado", que teve seu conteúdo sumarizado e substituído por um resumo curto para economizar context.
 
 **\#\#\# ASR (Automatic Speech Recognition)**  
-Conversão de fala em texto. No Kabem Voice, o ASR é local (não depende de nuvem) e roda antes do texto chegar ao classificador de intenção.
+Conversão de fala em texto. No Kabem Voice, o ASR é local (não depende de nuvem) e roda antes do texto chegar ao classificador de intenção. Em atividades de repetição/pronúncia em inglês, o locale do reconhecedor é forçado para o dialeto inglês selecionado para não interpretar a tentativa do aluno como português.
 
 \---
 
@@ -2099,6 +2099,16 @@ Testes específicos da Camada 3 (streaming por sentença).
 | T04 | Resposta STRATEGIC longa | TTS mantém fluxo contínuo, sem gaps \> 500ms entre sentenças |  
 | T05 | Sentença muito curta ("Sim.") | Buffer aguarda mais tokens antes de emitir |  
 | T06 | Resposta interrompida por erro do modelo | TTS termina a última sentença completa e para limpamente |
+
+\#\# 8.1\. Cenários bilíngues de professor de inglês
+
+| \# | Cenário | Comportamento esperado |  
+|---|---|---|  
+| B01 | Resposta em português com `Agora repita: Good morning.` | TTS fala a instrução em `pt-BR` e a frase-alvo em `EN-US`/`EN-GB` |  
+| B02 | Resposta com `Depois diga: Thank you.` | Frase curta comum em inglês não é sintetizada com voz portuguesa |  
+| B03 | `Em inglês, fale "How are you?"` em streaming | A frase entre aspas é segmentada como inglês mesmo se o `?` chegar antes da aspa final |  
+| B04 | Pedido `como se pronuncia good morning?` | Após a demonstração, a próxima escuta usa `EN-US`/`EN-GB`, não `pt-BR` |  
+| B05 | Explicação comum sem frase-alvo inglesa | Próxima escuta continua em português |
 
 \---
 

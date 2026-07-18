@@ -45,7 +45,7 @@ For users without Google Play access, install the apk from the [**latest release
 
 *   **Live Voice Chat (Kabem Voice)**: Engage in real-time, hands-free spoken conversations with local LLMs. Voice and keyboard share a persistent timeline, and normal speech is sent automatically when silence ends the turn. Transcript review is reserved for low-confidence recognition, while Markdown responses, contextual copy/share/edit/regenerate actions and response replay remain available. Multimodal turns support camera/gallery, audio and PDF study; unsafe edit/regenerate actions are conservatively disabled when their media payload cannot be reconstructed. Sessions, preferences and **Personal Memory** remain local to the device.
 
-*   **Conversa bilíngue local**: português e inglês compartilham o mesmo roteador de idioma, histórico e fluxo de voz. O Kabem detecta o idioma do turno, mantém continuações curtas no contexto correto e alterna reconhecimento e TTS sem usar uma segunda inferência. No Android 14+, a troca automática é habilitada somente quando os dois pacotes de reconhecimento estão instalados; em qualquer versão, uma voz local de outro idioma nunca é usada como substituta.
+*   **Conversa bilíngue local**: português e inglês compartilham o mesmo roteador de idioma, histórico e fluxo de voz. O Kabem detecta o idioma do turno, mantém continuações curtas no contexto correto e alterna reconhecimento e TTS sem usar uma segunda inferência. No Android 14+, a troca automática é habilitada somente quando os dois pacotes de reconhecimento estão instalados; em qualquer versão, uma voz local de outro idioma nunca é usada como substituta. Em aulas de inglês, exemplos e frases de repetição são segmentados por idioma para tocar com voz inglesa e armar o próximo microfone em `EN-US`/`EN-GB`.
 
 *   **Prompt Lab**: A dedicated workspace to test different prompts and single-turn use cases with granular control over model parameters like temperature and top-k.
 
@@ -88,8 +88,8 @@ Detalhes de implementação, limitações e matriz de validação estão no [pla
 
 *   **Idioma por turno:** comandos explícitos, reconhecimento do Android, análise textual e contexto anterior alimentam uma única decisão de idioma.
 *   **Continuidade natural:** respostas curtas como “sim”, “continua” e “okay” preservam o idioma estabelecido em vez de alternar sem motivo.
-*   **Professor de Inglês:** explicações usam português e exemplos, repetição e conversa livre usam `EN-US` ou `EN-GB` conforme a atividade.
-*   **Streaming seguro:** cada trecho é validado antes do TTS; marcadores internos não aparecem na tela nem são falados.
+*   **Professor de Inglês:** explicações usam português e exemplos, repetição, pronúncia e conversa livre usam `EN-US` ou `EN-GB` conforme a atividade. Quando o app demonstra uma frase e pede para repetir, a próxima escuta é forçada para o dialeto inglês selecionado, não para `pt-BR`.
+*   **Streaming seguro:** cada trecho é validado antes do TTS; marcadores internos não aparecem na tela nem são falados. Frases curtas de prática como `Good morning` e `Thank you` também são reconhecidas como inglês mesmo quando aparecem dentro de uma resposta em português.
 *   **Privacidade offline:** reconhecimento e vozes locais são verificados separadamente. O app informa quando falta pacote, voz ou suporte à troca automática.
 *   **Sessões persistentes:** o idioma estabelecido é restaurado com a conversa; uma nova sessão começa em português.
 

@@ -34,6 +34,40 @@ class BilingualSpeechSegmenterTest {
   }
 
   @Test
+  fun inlineEnglishPracticePhraseUsesEnglishVoiceInsidePortugueseResponse() {
+    val segmenter = segmenter(expected = SpeechLocale.PT_BR)
+
+    val chunks = segmenter.append("Agora repita: Good morning. Depois diga: Thank you.").chunks +
+      segmenter.finish().chunks
+
+    assertEquals(
+      listOf(SpeechLocale.PT_BR, SpeechLocale.EN_US, SpeechLocale.PT_BR, SpeechLocale.EN_US),
+      chunks.map(SpeechChunk::locale),
+    )
+    assertEquals(
+      "Agora repita: Good morning. Depois diga: Thank you.",
+      chunks.joinToString("") { it.text },
+    )
+  }
+
+  @Test
+  fun quotedInlineEnglishUsesSelectedDialectInsidePortugueseResponse() {
+    val segmenter = segmenter(expected = SpeechLocale.PT_BR, dialect = SpeechLocale.EN_GB)
+
+    val chunks = segmenter.append("Em inglês, fale \"How are you?\" e espere a resposta.").chunks +
+      segmenter.finish().chunks
+
+    assertEquals(
+      listOf(SpeechLocale.PT_BR, SpeechLocale.EN_GB, SpeechLocale.PT_BR),
+      chunks.map(SpeechChunk::locale),
+    )
+    assertEquals(
+      "Em inglês, fale \"How are you?\" e espere a resposta.",
+      chunks.joinToString("") { it.text },
+    )
+  }
+
+  @Test
   fun taggedTeachingResponseProducesValidatedPortugueseAndEnglishChunks() {
     val input =
       "[[pt-BR]]Quero explicar como isso funciona. " +

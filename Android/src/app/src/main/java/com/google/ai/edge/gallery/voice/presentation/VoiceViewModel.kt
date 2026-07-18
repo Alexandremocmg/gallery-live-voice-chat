@@ -50,6 +50,7 @@ import com.google.ai.edge.gallery.voice.language.EnglishLessonDecision
 import com.google.ai.edge.gallery.voice.language.EnglishLessonIntent
 import com.google.ai.edge.gallery.voice.language.EnglishLessonOrchestrator
 import com.google.ai.edge.gallery.voice.language.EnglishLessonState
+import com.google.ai.edge.gallery.voice.language.EnglishResponseStateUpdater
 import com.google.ai.edge.gallery.voice.language.EnglishTeachingPromptBuilder
 import com.google.ai.edge.gallery.voice.language.IntelligibilityAnalyzer
 import com.google.ai.edge.gallery.voice.language.LanguageConfidence
@@ -220,6 +221,7 @@ class VoiceViewModel(
   private val teachingOrchestrator = TeachingOrchestrator()
   private val teachingPromptBuilder = TeachingPromptBuilder()
   private val englishLessonOrchestrator = EnglishLessonOrchestrator()
+  private val englishResponseStateUpdater = EnglishResponseStateUpdater()
   private val englishTeachingPromptBuilder = EnglishTeachingPromptBuilder()
   private val intelligibilityAnalyzer = IntelligibilityAnalyzer()
   private val capabilityRouter = VoiceCapabilityRouter()
@@ -1461,27 +1463,8 @@ class VoiceViewModel(
   private fun updateEnglishStateAfterResponse(
     decision: EnglishLessonDecision,
     generatedEnglish: String,
-  ): EnglishLessonState {
-    val shouldCaptureTarget =
-      decision.intent in
-        setOf(
-          EnglishLessonIntent.START,
-          EnglishLessonIntent.PRONUNCIATION,
-          EnglishLessonIntent.SLOWER,
-          EnglishLessonIntent.REPEAT,
-        )
-    val cleanTarget =
-      generatedEnglish
-        .replace(Regex("\\s+"), " ")
-        .trim()
-        .split(Regex("(?<=[.!?])\\s+"))
-        .firstOrNull { it.isNotBlank() }
-        ?.take(180)
-    val target =
-      decision.nextState.expectedPhrase
-        ?: cleanTarget?.takeIf { shouldCaptureTarget && it.isNotBlank() }
-    return decision.nextState.copy(expectedPhrase = target)
-  }
+  ): EnglishLessonState =
+    englishResponseStateUpdater.updateAfterResponse(decision, generatedEnglish)
 
   private fun summarizeForTurnContext(text: String): String {
     return text.replace(Regex("\\s+"), " ").trim().take(180)

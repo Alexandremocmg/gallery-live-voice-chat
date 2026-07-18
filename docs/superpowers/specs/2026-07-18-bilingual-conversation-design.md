@@ -1,7 +1,7 @@
 # Kabem Voice Bilingual Conversation Design
 
 **Date:** 2026-07-18
-**Status:** Approved architecture, pending implementation plan
+**Status:** Implemented with post-validation fixes for mixed TTS and English-practice ASR
 
 ## Goal
 
@@ -13,6 +13,8 @@ Make Portuguese and English voice conversations sound natural and predictable wh
 2. Automatic recognition switching is enabled only during `EnglishActivity.FREE_CONVERSATION`, so ordinary conversation remains locked to the previous locale.
 3. `BilingualResponseParser` trusts model markers such as `[[pt-BR]]` and `[[en-US]]`. If the model omits or delays a marker, English text can be sent to a Portuguese TTS voice, or the reverse.
 4. Short or ambiguous utterances can make the conversation oscillate between languages without considering the previous turn.
+5. Marker-free Portuguese teaching output can contain short English examples such as `Good morning` or `Thank you`; without inline segmentation those examples are spoken with the Portuguese voice.
+6. Pronunciation prompts can demonstrate an English phrase but leave the next listening state in Portuguese, causing the learner's English repetition to be transcribed as Portuguese.
 
 Android references:
 
@@ -29,7 +31,8 @@ Android references:
 5. Explicit commands such as "fale ingles" and "volte ao portugues" override automatic detection.
 6. Short ambiguous turns inherit the established conversation language.
 7. Missing language packs or voices never cause text to be spoken with a voice from the wrong language.
-8. Detection, routing and TTS remain local. No network service is introduced.
+8. When the assistant asks the learner to repeat or pronounce an English phrase, the next microphone request is forced to the selected English dialect.
+9. Detection, routing and TTS remain local. No network service is introduced.
 
 ## Architecture
 
@@ -118,7 +121,7 @@ Replace marker-only trust with a `BilingualSpeechSegmenter` pipeline:
 5. merge adjacent segments with the same locale;
 6. enqueue one `SpeechChunk` per validated locale.
 
-An isolated foreign word inside a sentence does not change the voice. A complete English example inside a Portuguese lesson does.
+An isolated foreign word inside a sentence does not change the voice. A complete English example inside a Portuguese lesson does. The segmenter also handles marker-free teaching cues such as `repita:`, `diga:`, `fale`, `em inglês` and quoted practice phrases so common learner prompts still produce PT -> EN -> PT chunks.
 
 `VoiceChatManager` continues selecting a local `Voice` per `SpeechChunk`. If no offline voice exists for the resolved locale, it preserves the text, skips incorrect synthesis and shows a clear installation notice.
 
@@ -159,7 +162,9 @@ Starting a new session resets the established locale to Portuguese. An explicit 
 - Android 12 or 13 without platform language switching.
 - Portuguese conversation followed by an explicit English switch.
 - English conversation followed by an explicit Portuguese switch.
-- English Teacher explanation, example, repetition and free conversation.
+- English Teacher explanation, example, repetition, pronunciation and free conversation.
+- Marker-free Portuguese response containing inline English practice phrases.
+- Pronunciation request followed by learner repetition, verifying the active recognizer locale is `EN-US` or `EN-GB`.
 - Local Portuguese and English TTS voices installed separately.
 - Barge-in during Portuguese and English playback.
 
@@ -176,6 +181,7 @@ Starting a new session resets the established locale to Portuguese. An explicit 
 1. Portuguese text is never intentionally synthesized with an English voice, and English text is never intentionally synthesized with a Portuguese voice.
 2. Normal conversation answers in the language of the current user turn.
 3. Short ambiguous turns do not cause language oscillation.
-4. English Teacher output uses separate, correct voices for explanations and demonstrations.
-5. The complete flow works offline when both language packs and local voices are installed.
-6. Existing response-depth, teaching, session, media and barge-in behavior remains functional.
+4. English Teacher output uses separate, correct voices for explanations and demonstrations, including marker-free inline examples.
+5. English pronunciation/repetition exercises listen in the selected English dialect after the assistant demonstrates the target phrase.
+6. The complete flow works offline when both language packs and local voices are installed.
+7. Existing response-depth, teaching, session, media and barge-in behavior remains functional.

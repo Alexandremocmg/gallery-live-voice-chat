@@ -86,9 +86,9 @@ class EnglishLessonOrchestrator {
         state.copy(
           active = true,
           dialect = dialect,
-          activity = EnglishActivity.LISTENING,
+          activity = EnglishActivity.REPEAT,
           expectedPhrase = phrase ?: state.expectedPhrase,
-          nextInputLocale = SpeechLocale.PT_BR,
+          nextInputLocale = dialect,
           demonstrationRate = NORMAL_ENGLISH_RATE,
         ),
         EnglishLessonIntent.PRONUNCIATION,

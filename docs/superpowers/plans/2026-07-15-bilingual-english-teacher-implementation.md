@@ -29,9 +29,11 @@ Também estão concluídos:
 - bloqueio de fallback TTS entre idiomas e de vozes que exigem rede;
 - persistência do idioma da conversa e restauração de sessões legadas;
 - chip de idioma e avisos distintos para reconhecimento, voz local e troca automática;
-- diagnóstico por metadados sem registrar áudio ou texto privado.
+- diagnóstico por metadados sem registrar áudio ou texto privado;
+- segmentação de exemplos ingleses sem marcador dentro de respostas em português, evitando TTS inglês com voz portuguesa;
+- roteamento da próxima escuta para `EN-US`/`EN-GB` após pedidos de pronúncia ou repetição, evitando ASR português para tentativas do aluno.
 
-O Pacote Inglês Offline separado para aparelhos sem ASR local continua fora do escopo atual. Em Android 12 e 13, o aplicativo mantém um idioma de reconhecimento por turno. A matriz em aparelho e modo avião permanece pendente; nenhum dispositivo estava conectado ao ADB nesta revisão.
+O Pacote Inglês Offline separado para aparelhos sem ASR local continua fora do escopo atual. Em Android 12 e 13, o aplicativo mantém um idioma de reconhecimento por turno, mas atividades de repetição/pronúncia forçam esse turno para o dialeto inglês selecionado. A matriz em aparelho e modo avião permanece pendente; nenhum dispositivo estava conectado ao ADB nesta revisão.
 
 ## 1. Objetivo
 

@@ -29,6 +29,18 @@ class EnglishLessonOrchestratorTest {
     assertEquals(SpeechLocale.EN_GB, decision.nextState.nextInputLocale)
   }
 
+  @Test fun `pronunciation request arms English microphone for learner attempt`() {
+    val decision = orchestrator.decide(
+      EnglishLessonState(dialect = SpeechLocale.EN_GB),
+      "Como se pronuncia good morning?",
+    )
+
+    assertEquals(EnglishLessonIntent.PRONUNCIATION, decision.intent)
+    assertEquals(EnglishActivity.REPEAT, decision.nextState.activity)
+    assertEquals(SpeechLocale.EN_GB, decision.nextState.nextInputLocale)
+    assertEquals("good morning", decision.nextState.expectedPhrase)
+  }
+
   @Test fun `English input after repeat becomes learner attempt`() {
     val repeat = EnglishLessonState(active = true, activity = EnglishActivity.REPEAT, nextInputLocale = SpeechLocale.EN_US)
     val decision = orchestrator.decide(repeat, "How are you")

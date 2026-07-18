@@ -362,6 +362,39 @@ No diagnostic event writes raw audio, partial model output, recognized transcrip
 - separate Portuguese and English local TTS voice configurations;
 - Portuguese/English explicit switches, English Teacher activities and barge-in in both languages.
 
+## Post-Validation Fixes — 2026-07-18
+
+### Marker-free inline English TTS
+
+Additional regression tests were added for Portuguese teaching responses that contain English practice phrases without explicit `[[en-*]]` markers. `BilingualSpeechSegmenter` now splits common cues such as `repita:`, `diga:`, `fale`, `em inglês` and quoted examples so a response like `Agora repita: Good morning. Depois diga: Thank you.` is spoken as PT -> EN -> PT -> EN instead of entirely with the Portuguese voice.
+
+Validation run:
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest --tests com.google.ai.edge.gallery.voice.language.BilingualSpeechSegmenterTest
+./gradlew.bat :app:testDebugUnitTest --tests *voice*
+./gradlew.bat :app:assembleDebug
+```
+
+All commands completed with `BUILD SUCCESSFUL`.
+
+### English-practice ASR routing
+
+A second regression covered pronunciation/repetition turns where the assistant demonstrates an English phrase and then expects the learner to repeat it. `EnglishLessonOrchestrator` now moves pronunciation requests into `EnglishActivity.REPEAT`, and `EnglishResponseStateUpdater` promotes captured English targets after the response so the next listening locale is the selected English dialect (`EN-US` or `EN-GB`) rather than `pt-BR`.
+
+Validation run:
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest `
+  --tests com.google.ai.edge.gallery.voice.language.EnglishResponseStateUpdaterTest `
+  --tests com.google.ai.edge.gallery.voice.language.EnglishLessonOrchestratorTest `
+  --tests com.google.ai.edge.gallery.voice.language.RecognitionLanguagePolicyTest
+./gradlew.bat :app:testDebugUnitTest --tests *voice*
+./gradlew.bat :app:assembleDebug
+```
+
+All commands completed with `BUILD SUCCESSFUL`. Physical-device validation is still required to confirm installed Android recognition packs and local TTS voices on the target phone.
+
 ## Implementation Order
 
 1. Phase 1: pure language core and tests.
