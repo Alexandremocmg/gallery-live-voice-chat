@@ -197,7 +197,8 @@ class VoiceChatManager(
                         )
                     if (!mayPublish) return
                     _speechState.value = SpeechState.Speaking
-                    if (onVoiceBargeIn != null) {
+                    if (VoiceBargeInPolicy.AUTOMATIC_BARGE_IN_ENABLED_BY_DEFAULT &&
+                        onVoiceBargeIn != null) {
                         val activeChunk = synchronized(ttsQueueLock) { activeQueuedSpeech }
                         val bargeInConfig = activeChunk
                             ?.let(BargeInSensitivityPolicy::configFor)
@@ -921,6 +922,13 @@ class VoiceChatManager(
             _recognizedText.value = recognitionResult.text
             _speechState.value = SpeechState.ResultReady(recognitionResult)
         } else {
+            val elapsedMs =
+                (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
+            if (!manualStopRequested &&
+                retryTransientRecognitionError(SpeechRecognizer.ERROR_NO_MATCH, elapsedMs)
+            ) {
+                return
+            }
             clearRecognitionSession()
             manualStopRequested = false
             _speechState.value = SpeechState.Idle

@@ -675,7 +675,9 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 WaveformAnimation(isListening = uiState is VoiceUiState.Listening || uiState is VoiceUiState.ProcessingSpeech)
             }
 
-            val isActive = uiState is VoiceUiState.Listening
+            val isActive = uiState is VoiceUiState.Listening ||
+                uiState is VoiceUiState.ProcessingSpeech ||
+                uiState is VoiceUiState.Speaking
             val buttonColor = if (isActive)
                 MaterialTheme.colorScheme.error
             else

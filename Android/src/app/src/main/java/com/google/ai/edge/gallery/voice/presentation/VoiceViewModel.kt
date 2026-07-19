@@ -905,6 +905,7 @@ class VoiceViewModel(
     when (_uiState.value) {
       is VoiceUiState.Idle -> startListening()
       is VoiceUiState.Listening -> stopListening()
+      is VoiceUiState.ProcessingSpeech -> stopListening()
       is VoiceUiState.Speaking -> {
         interruptCurrentResponseAndListen(ttsAlreadyInterrupted = false)
       }
