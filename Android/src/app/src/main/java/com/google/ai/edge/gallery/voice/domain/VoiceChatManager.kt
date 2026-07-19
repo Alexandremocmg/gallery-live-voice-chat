@@ -21,6 +21,8 @@ import com.google.ai.edge.gallery.data.TtsVoiceMode
 import com.google.ai.edge.gallery.voice.language.LanguagePackStatus
 import com.google.ai.edge.gallery.voice.language.LanguageConfidence
 import com.google.ai.edge.gallery.voice.language.LanguageSwitchingSensitivity
+import com.google.ai.edge.gallery.voice.language.PartialRecognitionRecoveryPolicy
+import com.google.ai.edge.gallery.voice.language.PartialRecognitionTerminalError
 import com.google.ai.edge.gallery.voice.language.RecognizedWord
 import com.google.ai.edge.gallery.voice.language.RecognitionBackend
 import com.google.ai.edge.gallery.voice.language.SpeechBackendPolicy
@@ -75,6 +77,7 @@ class VoiceChatManager(
     @Volatile private var discardCurrentRecognitionResult = false
     @Volatile private var speechStartedInSession = false
     @Volatile private var manualStopRequested = false
+    @Volatile private var activePartialRecognitionResult: SpeechRecognitionResult? = null
     private var recognitionRetryAttempt = 0
     private var recognitionSessionStartedAtMs = 0L
     private var recognitionSessionId = 0L
@@ -331,6 +334,7 @@ class VoiceChatManager(
         stopSpeaking()
         discardCurrentRecognitionResult = false
         activeLanguageDetection = null
+        activePartialRecognitionResult = null
         recognitionSessionActive = false
         speechStartedInSession = false
         manualStopRequested = false
@@ -526,6 +530,7 @@ class VoiceChatManager(
         mainHandler.removeCallbacksAndMessages(null)
         recognitionRetryAttempt = 0
         discardCurrentRecognitionResult = true
+        activePartialRecognitionResult = null
         clearRecognitionSession()
         speechRecognizer?.cancel()
         _recognizedText.value = ""
@@ -787,12 +792,18 @@ class VoiceChatManager(
     }
 
     override fun onError(error: Int) {
-        clearRecognitionSession()
         if (discardCurrentRecognitionResult) {
+            activePartialRecognitionResult = null
+            clearRecognitionSession()
             discardCurrentRecognitionResult = false
             return
         }
         val elapsedMs = (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
+        if (recoverPartialRecognition(error.toPartialRecognitionTerminalError())) {
+            return
+        }
+        activePartialRecognitionResult = null
+        clearRecognitionSession()
         if (!manualStopRequested && retryTransientRecognitionError(error, elapsedMs)) {
             return
         }
@@ -829,6 +840,40 @@ class VoiceChatManager(
         manualStopRequested = false
         _speechState.value = SpeechState.Error(errorMessage)
     }
+
+    private fun recoverPartialRecognition(error: PartialRecognitionTerminalError): Boolean {
+        val partial = activePartialRecognitionResult ?: return false
+        if (!PartialRecognitionRecoveryPolicy.shouldRecover(
+                partialText = partial.text,
+                error = error,
+                manualStopRequested = manualStopRequested,
+            )
+        ) {
+            return false
+        }
+        activePartialRecognitionResult = null
+        clearRecognitionSession()
+        manualStopRequested = false
+        _recognizedText.value = partial.text
+        _voiceNotice.value = "Usei a fala que já tinha sido reconhecida."
+        Log.i(
+            TAG,
+            "Recognition #$recognitionSessionId recovered partial result after $error: " +
+                "length=${partial.text.length}",
+        )
+        _speechState.value = SpeechState.ResultReady(partial)
+        return true
+    }
+
+    private fun Int.toPartialRecognitionTerminalError(): PartialRecognitionTerminalError =
+        when (this) {
+            SpeechRecognizer.ERROR_NO_MATCH -> PartialRecognitionTerminalError.NO_MATCH
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> PartialRecognitionTerminalError.SPEECH_TIMEOUT
+            SpeechRecognizer.ERROR_CLIENT -> PartialRecognitionTerminalError.CLIENT
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED ->
+                PartialRecognitionTerminalError.SERVER_DISCONNECTED
+            else -> PartialRecognitionTerminalError.NON_RECOVERABLE
+        }
 
     private fun retryTransientRecognitionError(
         error: Int,
@@ -906,6 +951,7 @@ class VoiceChatManager(
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         if (!matches.isNullOrEmpty()) {
             val languageDetection = activeLanguageDetection
+            activePartialRecognitionResult = null
             clearRecognitionSession()
             manualStopRequested = false
             val recognitionResult =
@@ -922,6 +968,10 @@ class VoiceChatManager(
             _recognizedText.value = recognitionResult.text
             _speechState.value = SpeechState.ResultReady(recognitionResult)
         } else {
+            if (recoverPartialRecognition(PartialRecognitionTerminalError.EMPTY_RESULTS)) {
+                return
+            }
+            activePartialRecognitionResult = null
             val elapsedMs =
                 (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
             if (!manualStopRequested &&
@@ -1002,10 +1052,30 @@ class VoiceChatManager(
     }
 
     override fun onPartialResults(partialResults: Bundle?) {
-        if (discardCurrentRecognitionResult) return
+        if (discardCurrentRecognitionResult || !recognitionSessionActive) return
         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         if (!matches.isNullOrEmpty()) {
-            _recognizedText.value = matches[0]
+            val text = matches[0].trim()
+            if (text.isBlank()) return
+            val partial =
+                SpeechRecognitionResult(
+                    text = text,
+                    alternatives = matches.drop(1),
+                    confidenceScores =
+                        partialResults?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+                            ?.toList()
+                            .orEmpty(),
+                    words = partialResults?.let(::extractRecognizedWords).orEmpty(),
+                    locale = activeListeningLocale,
+                    backend = recognitionBackend,
+                    languageDetection = activeLanguageDetection,
+                )
+            activePartialRecognitionResult = partial
+            _recognizedText.value = text
+            Log.d(
+                TAG,
+                "Recognition #$recognitionSessionId partial length=${text.length}",
+            )
         }
     }
 
