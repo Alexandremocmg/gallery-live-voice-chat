@@ -722,7 +722,6 @@ class VoiceChatManager(
         clearRecognitionSession()
         if (discardCurrentRecognitionResult) {
             discardCurrentRecognitionResult = false
-            _speechState.value = SpeechState.Idle
             return
         }
         val errorMessage = when (error) {
@@ -778,7 +777,6 @@ class VoiceChatManager(
         if (discardCurrentRecognitionResult) {
             discardCurrentRecognitionResult = false
             clearRecognitionSession()
-            _speechState.value = SpeechState.Idle
             return
         }
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)

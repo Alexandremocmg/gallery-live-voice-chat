@@ -663,6 +663,7 @@ class VoiceViewModel(
           voiceChatManager.cancelListening()
           submitRecognitionResult(expired, ConversationMessageSource.VOICE)
         }
+      delay(ConversationTurnAccumulator.recognizerRestartDelayMs())
       startListening()
       return
     }

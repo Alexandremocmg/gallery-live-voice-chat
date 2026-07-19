@@ -60,4 +60,9 @@ class ConversationTurnAccumulatorTest {
 
     assertEquals(1_500L, ConversationTurnAccumulator.continuationWindowMs(timing))
   }
+
+  @Test
+  fun continuationRestartWaitsForRecognizerToSettle() {
+    assertEquals(300L, ConversationTurnAccumulator.recognizerRestartDelayMs())
+  }
 }

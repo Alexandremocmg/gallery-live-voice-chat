@@ -24,6 +24,8 @@ object ConversationTurnAccumulator {
   fun continuationWindowMs(timing: ConversationTurnTimingDecision): Long =
     maxOf(timing.submitDelayMs, timing.possiblyCompleteSilenceMs)
 
+  fun recognizerRestartDelayMs(): Long = 300L
+
   fun merge(first: String, second: String): String =
     listOf(first.trim(), second.trim())
       .filter { it.isNotBlank() }
