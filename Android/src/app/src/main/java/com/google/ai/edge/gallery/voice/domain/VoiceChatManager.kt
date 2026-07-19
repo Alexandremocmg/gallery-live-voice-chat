@@ -152,7 +152,6 @@ class VoiceChatManager(
         }
 
         if (speechRecognizer != null) {
-            speechRecognizer?.setRecognitionListener(this)
             refreshLanguageCapabilities()
         } else {
             Log.e("VoiceChatManager", "Speech recognition is not available on this device.")
@@ -360,6 +359,8 @@ class VoiceChatManager(
         }
         activeListeningLocale = request.primaryLocale
         activeRecognitionRequest = request
+        val sessionId = recognitionSessionId
+        speechRecognizer?.setRecognitionListener(SessionRecognitionListener(sessionId))
         recognitionSessionActive = true
         _speechState.value = SpeechState.Listening
         _recognizedText.value = ""
@@ -772,6 +773,75 @@ class VoiceChatManager(
         _playbackCheckpoint.value = null
     }
 
+    private inner class SessionRecognitionListener(
+        private val sessionId: Long,
+    ) : RecognitionListener {
+        private fun accept(event: String): Boolean {
+            val accepted =
+                RecognitionSessionPolicy.acceptCallback(
+                    callbackSessionId = sessionId,
+                    activeSessionId = recognitionSessionId,
+                    recognitionSessionActive = recognitionSessionActive,
+                )
+            if (!accepted) {
+                Log.w(
+                    TAG,
+                    "Ignoring stale recognition callback event=$event " +
+                        "callbackSession=$sessionId activeSession=$recognitionSessionId " +
+                        "active=$recognitionSessionActive",
+                )
+            }
+            return accepted
+        }
+
+        override fun onReadyForSpeech(params: Bundle?) {
+            if (accept("ready")) this@VoiceChatManager.onReadyForSpeech(params)
+        }
+
+        override fun onBeginningOfSpeech() {
+            if (accept("beginning")) this@VoiceChatManager.onBeginningOfSpeech()
+        }
+
+        override fun onRmsChanged(rmsdB: Float) {
+            if (RecognitionSessionPolicy.acceptCallback(
+                    callbackSessionId = sessionId,
+                    activeSessionId = recognitionSessionId,
+                    recognitionSessionActive = recognitionSessionActive,
+                )
+            ) {
+                this@VoiceChatManager.onRmsChanged(rmsdB)
+            }
+        }
+
+        override fun onBufferReceived(buffer: ByteArray?) {
+            if (accept("buffer")) this@VoiceChatManager.onBufferReceived(buffer)
+        }
+
+        override fun onEndOfSpeech() {
+            if (accept("end")) this@VoiceChatManager.onEndOfSpeech()
+        }
+
+        override fun onError(error: Int) {
+            if (accept("error:$error")) this@VoiceChatManager.onError(error)
+        }
+
+        override fun onResults(results: Bundle?) {
+            if (accept("results")) this@VoiceChatManager.onResults(results)
+        }
+
+        override fun onPartialResults(partialResults: Bundle?) {
+            if (accept("partial")) this@VoiceChatManager.onPartialResults(partialResults)
+        }
+
+        override fun onEvent(eventType: Int, params: Bundle?) {
+            if (accept("event:$eventType")) this@VoiceChatManager.onEvent(eventType, params)
+        }
+
+        override fun onLanguageDetection(results: Bundle) {
+            if (accept("language")) this@VoiceChatManager.onLanguageDetection(results)
+        }
+    }
+
     // RecognitionListener Callbacks
     override fun onReadyForSpeech(params: Bundle?) {
         Log.d(TAG, "Recognition #$recognitionSessionId ready")
@@ -893,6 +963,7 @@ class VoiceChatManager(
         val nextAttempt = decision.nextAttempt
         val previousSessionId = recognitionSessionId
         recognitionRetryAttempt = nextAttempt
+        clearRecognitionSession()
         if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
             error == SpeechRecognizer.ERROR_CLIENT ||
             error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
@@ -909,6 +980,21 @@ class VoiceChatManager(
         _speechState.value = SpeechState.Listening
         mainHandler.postDelayed(
             {
+                if (!RecognitionSessionPolicy.executeRetry(
+                        scheduledForSessionId = previousSessionId,
+                        activeSessionId = recognitionSessionId,
+                        recognitionSessionActive = recognitionSessionActive,
+                        manualStopRequested = manualStopRequested,
+                    )
+                ) {
+                    Log.w(
+                        TAG,
+                        "Ignoring stale recognition retry scheduledFor=$previousSessionId " +
+                            "activeSession=$recognitionSessionId active=$recognitionSessionActive " +
+                            "manualStop=$manualStopRequested",
+                    )
+                    return@postDelayed
+                }
                 startListeningInternal(request, resetRetry = false)
             },
             decision.retryDelayMs,
