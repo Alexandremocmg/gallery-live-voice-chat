@@ -331,12 +331,13 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             text = when (uiState) {
                 is VoiceUiState.Idle -> "Pronto para conversar"
                 is VoiceUiState.Listening -> "Estou ouvindo..."
+                is VoiceUiState.ProcessingSpeech -> "Finalizando áudio..."
                 is VoiceUiState.Generating -> "Pensando..."
                 is VoiceUiState.Speaking -> "Falando..."
                 else -> ""
             },
             style = MaterialTheme.typography.titleLarge,
-            color = if (uiState is VoiceUiState.Listening)
+            color = if (uiState is VoiceUiState.Listening || uiState is VoiceUiState.ProcessingSpeech)
                 MaterialTheme.colorScheme.primary
             else
                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -667,8 +668,11 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 .imePadding()
         ) {
             // Ripple animation
-            if (uiState is VoiceUiState.Listening || uiState is VoiceUiState.Speaking) {
-                WaveformAnimation(isListening = uiState is VoiceUiState.Listening)
+            if (uiState is VoiceUiState.Listening ||
+                uiState is VoiceUiState.ProcessingSpeech ||
+                uiState is VoiceUiState.Speaking
+            ) {
+                WaveformAnimation(isListening = uiState is VoiceUiState.Listening || uiState is VoiceUiState.ProcessingSpeech)
             }
 
             val isActive = uiState is VoiceUiState.Listening

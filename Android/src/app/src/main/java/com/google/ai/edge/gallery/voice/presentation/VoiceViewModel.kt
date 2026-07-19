@@ -398,7 +398,7 @@ class VoiceViewModel(
           }
           is SpeechState.Processing -> {
             _automaticLanguageSwitchingEnabled.value = false
-            _uiState.value = VoiceUiState.Generating
+            _uiState.value = VoiceUiState.ProcessingSpeech
           }
           is SpeechState.Speaking -> {
             _automaticLanguageSwitchingEnabled.value = false
@@ -408,6 +408,7 @@ class VoiceViewModel(
           is SpeechState.Error -> {
             _automaticLanguageSwitchingEnabled.value = false
             Log.e("VoiceViewModel", "Speech Recognizer Error: ${state.message}")
+            _actionNotices.emit(state.message)
             _uiState.value = VoiceUiState.Idle
             conversationStateMachine.transitionTo(VoiceConversationPhase.FAILED)
           }
@@ -1997,6 +1998,7 @@ class VoiceViewModel(
 sealed class VoiceUiState {
   object Idle : VoiceUiState()
   object Listening : VoiceUiState()
+  object ProcessingSpeech : VoiceUiState()
   object Generating : VoiceUiState()
   object Speaking : VoiceUiState()
   data class ReviewingTranscript(val text: String) : VoiceUiState()

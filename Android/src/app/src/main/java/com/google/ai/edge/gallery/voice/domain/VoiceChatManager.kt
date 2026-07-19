@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionPart
 import android.speech.RecognitionListener
 import android.speech.RecognitionSupport
@@ -29,7 +32,9 @@ import com.google.ai.edge.gallery.voice.language.SpeechLocale
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionErrorRecoveryPolicy
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionRequest
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionResult
+import com.google.ai.edge.gallery.voice.language.SpeechRecognitionRetryPolicy
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionRuntimeError
+import com.google.ai.edge.gallery.voice.language.SpeechRecognitionTransientError
 import com.google.ai.edge.gallery.voice.language.TtsPlaybackErrorRecoveryPolicy
 import com.google.ai.edge.gallery.voice.language.TtsPlaybackRuntimeError
 import com.google.ai.edge.gallery.voice.language.TtsVoiceSafetyPolicy
@@ -67,6 +72,12 @@ class VoiceChatManager(
     @Volatile private var activeLanguageDetection: SpeechLanguageDetection? = null
     @Volatile private var recognitionSessionActive = false
     @Volatile private var discardCurrentRecognitionResult = false
+    @Volatile private var speechStartedInSession = false
+    @Volatile private var manualStopRequested = false
+    private var recognitionRetryAttempt = 0
+    private var recognitionSessionStartedAtMs = 0L
+    private var recognitionSessionId = 0L
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val localVoices = mutableMapOf<SpeechLocale, Voice>()
     private val ttsQueue = SpeechChunkQueue()
     private val ttsQueueLock = Any()
@@ -291,9 +302,21 @@ class VoiceChatManager(
     }
 
     fun startListening(request: SpeechRecognitionRequest) {
+        startListeningInternal(request, resetRetry = true)
+    }
+
+    private fun startListeningInternal(
+        request: SpeechRecognitionRequest,
+        resetRetry: Boolean,
+    ) {
+        if (resetRetry) recognitionRetryAttempt = 0
         discardCurrentRecognitionResult = false
         activeLanguageDetection = null
         recognitionSessionActive = false
+        speechStartedInSession = false
+        manualStopRequested = false
+        recognitionSessionStartedAtMs = SystemClock.elapsedRealtime()
+        recognitionSessionId += 1
         val localPackConfirmed =
             _speechCapabilities.value[request.primaryLocale]?.languagePackStatus ==
                 LanguagePackStatus.INSTALLED
@@ -319,7 +342,8 @@ class VoiceChatManager(
         _recognizedText.value = ""
         Log.d(
             TAG,
-            "Recognition request: primary=${request.primaryLocale.languageTag}, " +
+            "Recognition request #$recognitionSessionId attempt=$recognitionRetryAttempt: " +
+                "primary=${request.primaryLocale.languageTag}, " +
                 "detection=${request.detectionEnabled}, switching=${request.switchingEnabled}",
         )
         try {
@@ -473,10 +497,15 @@ class VoiceChatManager(
     }
 
     fun stopListening() {
+        mainHandler.removeCallbacksAndMessages(null)
+        recognitionRetryAttempt = 0
+        manualStopRequested = true
         speechRecognizer?.stopListening()
     }
 
     fun cancelListening() {
+        mainHandler.removeCallbacksAndMessages(null)
+        recognitionRetryAttempt = 0
         discardCurrentRecognitionResult = true
         clearRecognitionSession()
         speechRecognizer?.cancel()
@@ -695,6 +724,7 @@ class VoiceChatManager(
     }
 
     fun release() {
+        mainHandler.removeCallbacksAndMessages(null)
         clearRecognitionSession()
         bargeInDetector.release()
         audioMonitorScope.cancel()
@@ -706,14 +736,19 @@ class VoiceChatManager(
 
     // RecognitionListener Callbacks
     override fun onReadyForSpeech(params: Bundle?) {
+        Log.d(TAG, "Recognition #$recognitionSessionId ready")
         if (discardCurrentRecognitionResult) return
         _speechState.value = SpeechState.Listening
     }
 
-    override fun onBeginningOfSpeech() {}
+    override fun onBeginningOfSpeech() {
+        speechStartedInSession = true
+        Log.d(TAG, "Recognition #$recognitionSessionId beginning_of_speech")
+    }
     override fun onRmsChanged(rmsdB: Float) {}
     override fun onBufferReceived(buffer: ByteArray?) {}
     override fun onEndOfSpeech() {
+        Log.d(TAG, "Recognition #$recognitionSessionId end_of_speech")
         if (discardCurrentRecognitionResult) return
         _speechState.value = SpeechState.Processing
     }
@@ -722,6 +757,10 @@ class VoiceChatManager(
         clearRecognitionSession()
         if (discardCurrentRecognitionResult) {
             discardCurrentRecognitionResult = false
+            return
+        }
+        val elapsedMs = (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
+        if (!manualStopRequested && retryTransientRecognitionError(error, elapsedMs)) {
             return
         }
         val errorMessage = when (error) {
@@ -754,8 +793,60 @@ class VoiceChatManager(
         if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
             recreateSpeechRecognizer()
         }
+        manualStopRequested = false
         _speechState.value = SpeechState.Error(errorMessage)
     }
+
+    private fun retryTransientRecognitionError(
+        error: Int,
+        elapsedMs: Long,
+    ): Boolean {
+        val transientError = error.toTransientRecognitionError() ?: return false
+        val decision =
+            SpeechRecognitionRetryPolicy.decide(
+                error = transientError,
+                attempt = recognitionRetryAttempt,
+                speechStarted = speechStartedInSession,
+                elapsedMs = elapsedMs,
+            )
+        if (!decision.shouldRetry) return false
+
+        val request = activeRecognitionRequest
+        val nextAttempt = decision.nextAttempt
+        val previousSessionId = recognitionSessionId
+        recognitionRetryAttempt = nextAttempt
+        if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+            error == SpeechRecognizer.ERROR_CLIENT ||
+            error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
+        ) {
+            recreateSpeechRecognizer()
+        }
+        Log.w(
+            TAG,
+            "Recognition #$previousSessionId transient error=$error kind=$transientError " +
+                "speechStarted=$speechStartedInSession elapsedMs=$elapsedMs; " +
+                "retry=$nextAttempt delayMs=${decision.retryDelayMs}",
+        )
+        _voiceNotice.value = "Reconhecimento oscilou; vou continuar ouvindo."
+        _speechState.value = SpeechState.Listening
+        mainHandler.postDelayed(
+            {
+                startListeningInternal(request, resetRetry = false)
+            },
+            decision.retryDelayMs,
+        )
+        return true
+    }
+
+    private fun Int.toTransientRecognitionError(): SpeechRecognitionTransientError? =
+        when (this) {
+            SpeechRecognizer.ERROR_CLIENT -> SpeechRecognitionTransientError.CLIENT
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> SpeechRecognitionTransientError.RECOGNIZER_BUSY
+            SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> SpeechRecognitionTransientError.SERVER_DISCONNECTED
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> SpeechRecognitionTransientError.SPEECH_TIMEOUT
+            SpeechRecognizer.ERROR_NO_MATCH -> SpeechRecognitionTransientError.NO_MATCH
+            else -> null
+        }
 
     private fun applyRecognitionErrorRecovery(error: SpeechRecognitionRuntimeError) {
         val recovery =
@@ -783,6 +874,7 @@ class VoiceChatManager(
         if (!matches.isNullOrEmpty()) {
             val languageDetection = activeLanguageDetection
             clearRecognitionSession()
+            manualStopRequested = false
             val recognitionResult =
                 SpeechRecognitionResult(
                     text = matches[0],
@@ -798,6 +890,7 @@ class VoiceChatManager(
             _speechState.value = SpeechState.ResultReady(recognitionResult)
         } else {
             clearRecognitionSession()
+            manualStopRequested = false
             _speechState.value = SpeechState.Idle
         }
     }
