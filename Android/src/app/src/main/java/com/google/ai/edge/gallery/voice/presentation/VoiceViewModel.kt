@@ -408,6 +408,9 @@ class VoiceViewModel(
           is SpeechState.Error -> {
             _automaticLanguageSwitchingEnabled.value = false
             Log.e("VoiceViewModel", "Speech Recognizer Error: ${state.message}")
+            if (submitPendingRecognitionAfterError(state.message)) {
+              return@collectLatest
+            }
             _actionNotices.emit(state.message)
             _uiState.value = VoiceUiState.Idle
             conversationStateMachine.transitionTo(VoiceConversationPhase.FAILED)
@@ -679,19 +682,36 @@ class VoiceViewModel(
     pendingRecognitionContinuation = null
   }
 
+  private suspend fun submitPendingRecognitionAfterError(errorMessage: String): Boolean {
+    if (!shouldSubmitPendingRecognitionAfterError(
+        errorMessage = errorMessage,
+        hasPendingRecognition = pendingRecognitionContinuation != null,
+      )
+    ) {
+      return false
+    }
+    val pending = pendingRecognitionContinuation ?: return false
+    pendingRecognitionContinuationJob?.cancel()
+    pendingRecognitionContinuationJob = null
+    pendingRecognitionContinuation = null
+    _actionNotices.emit("Usei o trecho que já tinha entendido.")
+    submitRecognitionResult(pending, ConversationMessageSource.VOICE)
+    return true
+  }
+
   private fun submitRecognitionResult(
     result: SpeechRecognitionResult,
     source: ConversationMessageSource,
   ): Boolean {
     val normalized = result.text.trim()
-    // VoiceChatManager reports SpeechState.Processing while it waits for the final ASR result.
-    // That is not model generation, so VoiceUiState.Generating must not block this submission.
-    if (!canSubmitConversationTurn(
+    val rejectionNotice =
+      conversationTurnRejectionNotice(
         text = normalized,
         responseGenerationInProgress = responseGenerationInProgress.get(),
         hasActiveModel = activeModel != null,
       )
-    ) {
+    if (rejectionNotice != null) {
+      viewModelScope.launch(Dispatchers.Main) { _actionNotices.emit(rejectionNotice) }
       return false
     }
     _recognizedText.value = normalized
@@ -2012,7 +2032,26 @@ internal fun canSubmitConversationTurn(
   text: String,
   responseGenerationInProgress: Boolean,
   hasActiveModel: Boolean,
-): Boolean = text.isNotBlank() && !responseGenerationInProgress && hasActiveModel
+): Boolean = conversationTurnRejectionNotice(text, responseGenerationInProgress, hasActiveModel) == null
+
+internal fun conversationTurnRejectionNotice(
+  text: String,
+  responseGenerationInProgress: Boolean,
+  hasActiveModel: Boolean,
+): String? =
+  when {
+    text.isBlank() -> "O trecho reconhecido ficou vazio; tente falar de novo."
+    responseGenerationInProgress -> "Aguarde a resposta atual terminar antes de falar de novo."
+    !hasActiveModel -> "O modelo ainda não está pronto para responder."
+    else -> null
+  }
+
+internal fun shouldSubmitPendingRecognitionAfterError(
+  errorMessage: String,
+  hasPendingRecognition: Boolean,
+): Boolean =
+  hasPendingRecognition &&
+    errorMessage.contains("Nao consegui entender", ignoreCase = true)
 
 private const val RECOMMENDED_VOICE_MODEL = "Gemma-4-E2B-it"
 
