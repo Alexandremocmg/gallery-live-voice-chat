@@ -50,6 +50,7 @@ import com.google.ai.edge.gallery.voice.language.EnglishLessonDecision
 import com.google.ai.edge.gallery.voice.language.EnglishLessonIntent
 import com.google.ai.edge.gallery.voice.language.EnglishLessonOrchestrator
 import com.google.ai.edge.gallery.voice.language.EnglishLessonState
+import com.google.ai.edge.gallery.voice.language.EnglishPracticeInputPolicy
 import com.google.ai.edge.gallery.voice.language.EnglishResponseStateUpdater
 import com.google.ai.edge.gallery.voice.language.EnglishTeachingPromptBuilder
 import com.google.ai.edge.gallery.voice.language.IntelligibilityAnalyzer
@@ -459,9 +460,16 @@ class VoiceViewModel(
           englishActivity = englishState.activity,
         )
       val locale = recognitionRequest.primaryLocale
+      val recognitionCapability = voiceChatManager.speechCapabilities.value[locale]
+      val shouldUseGemmaAudioForPractice =
+        EnglishPracticeInputPolicy.shouldUseGemmaAudio(
+          activity = englishState.activity,
+          modelSupportsAudio = model.llmSupportAudio,
+          recognitionCapability = recognitionCapability,
+        )
       _activeSpeechLocale.value = locale
       _automaticLanguageSwitchingEnabled.value = recognitionRequest.switchingEnabled
-      if (englishState.activity == EnglishActivity.REPEAT && model.llmSupportAudio) {
+      if (shouldUseGemmaAudioForPractice) {
         _uiState.value = VoiceUiState.Listening
         pronunciationRecorder.start(
           scope = viewModelScope,
