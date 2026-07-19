@@ -1,7 +1,7 @@
 # Kabem Voice Bilingual Conversation Implementation Plan
 
 **Date:** 2026-07-18
-**Status:** Ready for implementation
+**Status:** Implemented with post-validation fixes for conversation timing, runtime ASR/TTS recovery and readiness UX
 **Design:** `docs/superpowers/specs/2026-07-18-bilingual-conversation-design.md`
 
 ## Goal
@@ -394,6 +394,51 @@ Validation run:
 ```
 
 All commands completed with `BUILD SUCCESSFUL`. Physical-device validation is still required to confirm installed Android recognition packs and local TTS voices on the target phone.
+
+## Post-Validation Fixes — 2026-07-19
+
+### Natural turn timing and conservative barge-in
+
+Focused policies were added for recognition endpointing, continuation accumulation and barge-in sensitivity. Conversation turns now tolerate short pauses before submitting incomplete speech to the model, merge likely continuation fragments, and use less aggressive VAD thresholds for short English demonstrations.
+
+Validation run:
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest --tests com.google.ai.edge.gallery.voice.conversation.ConversationTurnTimingPolicyTest --tests com.google.ai.edge.gallery.voice.conversation.ConversationTurnAccumulatorTest
+./gradlew.bat :app:testDebugUnitTest --tests com.google.ai.edge.gallery.voice.domain.BargeInSensitivityPolicyTest --tests com.google.ai.edge.gallery.voice.domain.AdaptiveVoiceActivityDetectorTest
+./gradlew.bat :app:testDebugUnitTest --tests *voice*
+./gradlew.bat :app:assembleDebug
+```
+
+All commands completed with `BUILD SUCCESSFUL`.
+
+### Offline readiness actions and runtime recovery
+
+`SpeechReadinessPolicy` now emits explicit actions for missing recognition packs and missing local TTS voices for both required locales: `pt-BR` plus the selected English dialect. Runtime `SpeechRecognizer` language errors are mapped back into capability state, and runtime TTS playback failures mark only the affected chunk locale as missing local TTS. Returning from Android speech/TTS settings triggers a throttled readiness refresh that recatalogs local voices and rechecks recognition support.
+
+The UI renders consolidated `displayNotices` to avoid noisy stacked warnings, while retaining complete `notices` for diagnostics and showing download/settings actions separately.
+
+Validation run:
+
+```powershell
+./gradlew.bat :app:testDebugUnitTest --tests com.google.ai.edge.gallery.voice.language.RecognitionLanguagePolicyTest --tests com.google.ai.edge.gallery.voice.language.SpeechReadinessPolicyTest
+./gradlew.bat :app:testDebugUnitTest --tests com.google.ai.edge.gallery.voice.language.SpeechRecognitionErrorRecoveryPolicyTest --tests com.google.ai.edge.gallery.voice.language.TtsPlaybackErrorRecoveryPolicyTest --tests com.google.ai.edge.gallery.voice.language.SpeechReadinessRefreshPolicyTest
+./gradlew.bat :app:testDebugUnitTest --tests *voice*
+./gradlew.bat :app:assembleDebug
+```
+
+All commands completed with `BUILD SUCCESSFUL`. Physical-device validation is still pending for actual installed Android recognition packs, local TTS voices and Settings-return flows.
+
+### Documentation and preparation
+
+Documentation was updated in:
+
+- `README.md` for user-visible bilingual/offline behavior;
+- `Android/README.md` for Android build and local validation notes;
+- `docs/superpowers/specs/2026-07-18-bilingual-conversation-design.md` for readiness/recovery/timing acceptance criteria;
+- this plan for post-validation results and remaining device caveat.
+
+Pre-commit preparation includes a diff review, secret scan, `local.properties` check, voice unit suite and debug APK build before commit/push.
 
 ## Implementation Order
 

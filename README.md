@@ -90,10 +90,12 @@ Detalhes de implementação, limitações e matriz de validação estão no [pla
 *   **Continuidade natural:** respostas curtas como “sim”, “continua” e “okay” preservam o idioma estabelecido em vez de alternar sem motivo.
 *   **Professor de Inglês:** explicações usam português e exemplos, repetição, pronúncia e conversa livre usam `EN-US` ou `EN-GB` conforme a atividade. Quando o app demonstra uma frase e pede para repetir, a próxima escuta é forçada para o dialeto inglês selecionado, não para `pt-BR`.
 *   **Streaming seguro:** cada trecho é validado antes do TTS; marcadores internos não aparecem na tela nem são falados. Frases curtas de prática como `Good morning` e `Thank you` também são reconhecidas como inglês mesmo quando aparecem dentro de uma resposta em português.
-*   **Privacidade offline:** reconhecimento e vozes locais são verificados separadamente. O app informa quando falta pacote, voz ou suporte à troca automática.
+*   **Privacidade offline:** reconhecimento e vozes locais são verificados separadamente. O app informa quando falta pacote, voz ou suporte à troca automática, sem substituir uma voz local pelo idioma errado.
+*   **Readiness guiada:** quando falta recurso local, a tela mostra ações claras para baixar reconhecimento PT/EN ou abrir as configurações de vozes offline. Ao voltar das configurações, o app reconsulta pacotes e vozes automaticamente.
+*   **Conversa mais natural:** a escuta tolera pausas curtas, acumula continuações quando a frase parece incompleta e usa barge-in conservador para não interromper demonstrações curtas em inglês por eco/ruído.
 *   **Sessões persistentes:** o idioma estabelecido é restaurado com a conversa; uma nova sessão começa em português.
 
-O chip de idioma mostra `PT`, `EN-US`, `EN-GB` ou `PT/EN automático`. A indicação de prontidão bilíngue offline só aparece quando os pacotes de reconhecimento e as vozes locais de ambos os idiomas foram confirmados.
+O chip de idioma mostra `PT`, `EN-US`, `EN-GB` ou `PT/EN automático`. A indicação de prontidão bilíngue offline só aparece quando os pacotes de reconhecimento e as vozes locais de ambos os idiomas foram confirmados. Quando há vários problemas ao mesmo tempo, a UI mostra o aviso principal e mantém os botões de ação separados para evitar excesso de mensagens.
 
 ## 🧠 Professor Adaptativo (Adaptive Teacher)
 

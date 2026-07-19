@@ -53,7 +53,7 @@ class RecognitionLanguagePolicyTest {
   }
 
   @Test
-  fun android34WithMissingEnglishPackDetectsWithoutSwitching() {
+  fun android34WithMissingEnglishPackFallsBackToPrimaryLocaleOnly() {
     val request =
       RecognitionLanguagePolicy.create(
         apiLevel = 34,
@@ -68,7 +68,38 @@ class RecognitionLanguagePolicyTest {
       )
 
     assertEquals(SpeechLocale.PT_BR, request.primaryLocale)
-    assertTrue(request.detectionEnabled)
+    assertEquals(listOf(SpeechLocale.PT_BR), request.allowedLocales)
+    assertFalse(request.detectionEnabled)
+    assertFalse(request.switchingEnabled)
+  }
+
+  @Test
+  fun android34SystemRecognizerDoesNotEnableBilingualDetectionEvenIfStatusLooksInstalled() {
+    val request =
+      RecognitionLanguagePolicy.create(
+        apiLevel = 34,
+        establishedLocale = SpeechLocale.PT_BR,
+        englishDialect = SpeechLocale.EN_US,
+        capabilities =
+          mapOf(
+            SpeechLocale.PT_BR to
+              capability(
+                SpeechLocale.PT_BR,
+                LanguagePackStatus.INSTALLED,
+                backend = RecognitionBackend.ANDROID_SYSTEM,
+              ),
+            SpeechLocale.EN_US to
+              capability(
+                SpeechLocale.EN_US,
+                LanguagePackStatus.INSTALLED,
+                backend = RecognitionBackend.ANDROID_SYSTEM,
+              ),
+          ),
+      )
+
+    assertEquals(SpeechLocale.PT_BR, request.primaryLocale)
+    assertEquals(listOf(SpeechLocale.PT_BR), request.allowedLocales)
+    assertFalse(request.detectionEnabled)
     assertFalse(request.switchingEnabled)
   }
 
@@ -140,10 +171,11 @@ class RecognitionLanguagePolicyTest {
   private fun capability(
     locale: SpeechLocale,
     status: LanguagePackStatus,
+    backend: RecognitionBackend = RecognitionBackend.ANDROID_ON_DEVICE,
   ) =
     SpeechCapability(
       locale = locale,
-      backend = RecognitionBackend.ANDROID_ON_DEVICE,
+      backend = backend,
       languagePackStatus = status,
     )
 }

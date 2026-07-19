@@ -32,7 +32,9 @@ Android references:
 6. Short ambiguous turns inherit the established conversation language.
 7. Missing language packs or voices never cause text to be spoken with a voice from the wrong language.
 8. When the assistant asks the learner to repeat or pronounce an English phrase, the next microphone request is forced to the selected English dialect.
-9. Detection, routing and TTS remain local. No network service is introduced.
+9. Natural conversation should tolerate short pauses, merge likely continuations and avoid speaking over the user after an incomplete final result.
+10. Barge-in must be conservative during short English demonstrations so echo/noise does not cut off the teacher.
+11. Detection, routing and TTS remain local. No network service is introduced.
 
 ## Architecture
 
@@ -131,12 +133,25 @@ Persist the last established conversation locale in `ChatSessionProto` as a new 
 
 Starting a new session resets the established locale to Portuguese. An explicit command such as "vamos conversar em ingles" establishes English for that session and is then persisted.
 
+### 6. Readiness, Recovery and Timing
+
+`SpeechReadinessPolicy` is the UI authority for offline readiness. It keeps complete diagnostic `notices`, exposes consolidated `displayNotices` for the visible status row, and emits explicit actions for recognition-pack downloads and local TTS voice settings. Required locales are always Brazilian Portuguese plus the selected English dialect.
+
+Runtime Android failures feed back into the same capability model:
+
+- recognition language errors update the active locale's pack status (`DOWNLOAD_AVAILABLE`, `UNSUPPORTED` or `UNKNOWN`);
+- TTS voice failures mark only the active chunk locale as `localTtsAvailable = false`;
+- returning from Android speech/TTS settings refreshes both recognition support and the local voice catalog with a small resume cooldown.
+
+Conversation timing is handled separately from language routing. Endpointing hints and a continuation accumulator allow short pauses before submitting the model turn, while barge-in sensitivity is reduced for short English demonstrations.
+
 ## Error Handling
 
 - If language detection is unavailable, use transcript analysis and conversation context.
 - If language switching is unsupported, retain the selected single recognizer locale and expose no false claim of automatic switching.
-- If an English recognition pack is missing, show the existing offline pack action before an English listening turn.
-- If a TTS voice is missing, never substitute a voice from another language.
+- If an English or Portuguese recognition pack is missing, show a locale-specific offline-pack action and disable it while a download is pending.
+- If a TTS voice is missing or rejected at runtime, never substitute a voice from another language; skip the chunk, mark that locale's local TTS capability unavailable and surface the offline-voice settings action.
+- If Android reports that language support cannot be checked, keep the capability unknown rather than claiming readiness.
 - If the resolver remains uncertain, inherit the previous locale rather than alternate unpredictably.
 - Recognition and synthesis errors remain visible but do not erase the session or its established locale.
 
@@ -165,8 +180,12 @@ Starting a new session resets the established locale to Portuguese. An explicit 
 - English Teacher explanation, example, repetition, pronunciation and free conversation.
 - Marker-free Portuguese response containing inline English practice phrases.
 - Pronunciation request followed by learner repetition, verifying the active recognizer locale is `EN-US` or `EN-GB`.
+- Missing PT or English recognition pack shows the matching download action and does not enable bilingual switching.
+- Pending recognition download shows a disabled in-progress action.
 - Local Portuguese and English TTS voices installed separately.
-- Barge-in during Portuguese and English playback.
+- Missing/incomplete/rejected local TTS voice shows the offline-voice settings action for the affected locale.
+- Returning from Android recognition/TTS settings refreshes readiness without restarting the app.
+- Barge-in during Portuguese and English playback, including short English demonstrations.
 
 ## Non-Goals
 
@@ -184,4 +203,6 @@ Starting a new session resets the established locale to Portuguese. An explicit 
 4. English Teacher output uses separate, correct voices for explanations and demonstrations, including marker-free inline examples.
 5. English pronunciation/repetition exercises listen in the selected English dialect after the assistant demonstrates the target phrase.
 6. The complete flow works offline when both language packs and local voices are installed.
-7. Existing response-depth, teaching, session, media and barge-in behavior remains functional.
+7. Missing or failed local resources produce actionable readiness UI without false offline-ready claims.
+8. Natural conversation timing avoids premature model submission on short pauses and avoids aggressive barge-in on short English examples.
+9. Existing response-depth, teaching, session, media and barge-in behavior remains functional.

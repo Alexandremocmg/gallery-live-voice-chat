@@ -31,7 +31,10 @@ Também estão concluídos:
 - chip de idioma e avisos distintos para reconhecimento, voz local e troca automática;
 - diagnóstico por metadados sem registrar áudio ou texto privado;
 - segmentação de exemplos ingleses sem marcador dentro de respostas em português, evitando TTS inglês com voz portuguesa;
-- roteamento da próxima escuta para `EN-US`/`EN-GB` após pedidos de pronúncia ou repetição, evitando ASR português para tentativas do aluno.
+- roteamento da próxima escuta para `EN-US`/`EN-GB` após pedidos de pronúncia ou repetição, evitando ASR português para tentativas do aluno;
+- timing de conversa mais natural com tolerância a pausas curtas, acumulação de continuações prováveis e atraso seguro antes de enviar frases incompletas ao modelo;
+- barge-in mais conservador durante demonstrações inglesas curtas, reduzindo cortes causados por eco/ruído;
+- readiness offline guiada por policy, com ações para baixar reconhecimento PT/EN, configurar vozes offline, atualizar estado ao voltar das configurações e consolidar avisos visuais sem esconder diagnósticos.
 
 O Pacote Inglês Offline separado para aparelhos sem ASR local continua fora do escopo atual. Em Android 12 e 13, o aplicativo mantém um idioma de reconhecimento por turno, mas atividades de repetição/pronúncia forçam esse turno para o dialeto inglês selecionado. A matriz em aparelho e modo avião permanece pendente; nenhum dispositivo estava conectado ao ADB nesta revisão.
 

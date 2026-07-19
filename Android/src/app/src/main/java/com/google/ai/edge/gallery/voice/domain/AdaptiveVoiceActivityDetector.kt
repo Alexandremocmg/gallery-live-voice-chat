@@ -8,6 +8,12 @@ class AdaptiveVoiceActivityDetector(
   private val minimumThreshold: Float = 900f,
   private val noiseMultiplier: Float = 3.2f,
 ) {
+  constructor(config: VoiceActivityDetectorConfig) : this(
+    warmupMs = config.warmupMs,
+    sustainedSpeechMs = config.sustainedSpeechMs,
+    minimumThreshold = config.minimumThreshold,
+    noiseMultiplier = config.noiseMultiplier,
+  )
   private var startedAtMs = 0L
   private var speechStartedAtMs: Long? = null
   private var noiseFloor = 250f

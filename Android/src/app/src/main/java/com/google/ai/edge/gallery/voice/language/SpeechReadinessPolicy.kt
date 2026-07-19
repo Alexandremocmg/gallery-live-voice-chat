@@ -13,9 +13,24 @@ data class SpeechReadinessNotice(
   val message: String,
 )
 
+data class SpeechReadinessAction(
+  val locale: SpeechLocale,
+  val label: String,
+  val enabled: Boolean,
+)
+
+data class SpeechReadinessSettingsAction(
+  val locales: List<SpeechLocale>,
+  val label: String,
+  val enabled: Boolean,
+)
+
 data class SpeechReadinessState(
   val isBilingualOfflineReady: Boolean,
   val notices: List<SpeechReadinessNotice>,
+  val displayNotices: List<SpeechReadinessNotice> = notices,
+  val languagePackDownloadActions: List<SpeechReadinessAction> = emptyList(),
+  val localVoiceSettingsAction: SpeechReadinessSettingsAction? = null,
 )
 
 object SpeechReadinessPolicy {
@@ -62,6 +77,8 @@ object SpeechReadinessPolicy {
     }
 
     val notices = mutableListOf<SpeechReadinessNotice>()
+    val languagePackDownloadActions = mutableListOf<SpeechReadinessAction>()
+    var localVoiceSettingsAction: SpeechReadinessSettingsAction? = null
     if (requiredCapabilities.values.all { it.backend == RecognitionBackend.UNAVAILABLE }) {
       notices +=
         SpeechReadinessNotice(
@@ -89,6 +106,27 @@ object SpeechReadinessPolicy {
             else -> "Reconhecimento offline nao confirmado: $labels."
           },
         )
+      languagePackDownloadActions +=
+        unavailableLocales
+          .filter { locale ->
+            requiredCapabilities.getValue(locale).languagePackStatus in
+              setOf(LanguagePackStatus.DOWNLOAD_AVAILABLE, LanguagePackStatus.DOWNLOAD_PENDING)
+          }
+          .map { locale ->
+            val pending =
+              requiredCapabilities.getValue(locale).languagePackStatus ==
+                LanguagePackStatus.DOWNLOAD_PENDING
+            SpeechReadinessAction(
+              locale = locale,
+              label =
+                if (pending) {
+                  "Baixando reconhecimento ${localeReadinessLabel(locale)}"
+                } else {
+                  "Baixar reconhecimento ${localeReadinessLabel(locale)}"
+                },
+              enabled = !pending,
+            )
+          }
     }
 
     if (localTtsAvailabilityKnown) {
@@ -102,6 +140,14 @@ object SpeechReadinessPolicy {
               missingVoiceLocales.joinToString(" e ", transform = ::localeReadinessLabel) +
               ".",
           )
+        localVoiceSettingsAction =
+          SpeechReadinessSettingsAction(
+            locales = missingVoiceLocales.toList(),
+            label =
+              "Configurar vozes offline: " +
+                missingVoiceLocales.joinToString(" e ", transform = ::localeReadinessLabel),
+            enabled = true,
+          )
       }
     }
 
@@ -112,8 +158,31 @@ object SpeechReadinessPolicy {
           "Alternancia automatica PT/EN indisponivel neste Android.",
         )
     }
-    return SpeechReadinessState(isBilingualOfflineReady = false, notices = notices)
+    return SpeechReadinessState(
+      isBilingualOfflineReady = false,
+      notices = notices,
+      displayNotices = primaryDisplayNotices(notices),
+      languagePackDownloadActions = languagePackDownloadActions,
+      localVoiceSettingsAction = localVoiceSettingsAction,
+    )
   }
+}
+
+private fun primaryDisplayNotices(
+  notices: List<SpeechReadinessNotice>,
+): List<SpeechReadinessNotice> {
+  if (notices.isEmpty()) return emptyList()
+  val priority =
+    listOf(
+      SpeechReadinessNoticeKind.READY,
+      SpeechReadinessNoticeKind.RECOGNITION_UNAVAILABLE,
+      SpeechReadinessNoticeKind.RECOGNITION_PACK_MISSING,
+      SpeechReadinessNoticeKind.LOCAL_TTS_VOICE_MISSING,
+      SpeechReadinessNoticeKind.AUTOMATIC_SWITCHING_UNSUPPORTED,
+    )
+  return priority.firstNotNullOfOrNull { kind -> notices.firstOrNull { it.kind == kind } }
+    ?.let(::listOf)
+    ?: notices.take(1)
 }
 
 private fun localeReadinessLabel(locale: SpeechLocale): String =

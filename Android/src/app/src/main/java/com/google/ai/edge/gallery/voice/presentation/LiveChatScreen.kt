@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.ai.edge.gallery.ui.modelmanager.ModelManagerViewModel
@@ -207,6 +209,7 @@ fun VoiceAppScreen(modelManagerViewModel: ModelManagerViewModel, onBackClicked: 
 @Composable
 fun LiveChatScreen(viewModel: VoiceViewModel) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val uiState by viewModel.uiState.collectAsState()
     val recognizedText by viewModel.recognizedText.collectAsState()
@@ -245,6 +248,15 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(viewModel) {
         viewModel.actionNotices.collect { snackbarHostState.showSnackbar(it) }
+    }
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshSpeechReadinessOnResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val pickImage = rememberLauncherForActivityResult(
@@ -394,11 +406,9 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             )
         }
 
-        val hasMissingLocalVoice = speechReadiness.notices.any {
-            it.kind == SpeechReadinessNoticeKind.LOCAL_TTS_VOICE_MISSING
-        }
+        val localVoiceSettingsAction = speechReadiness.localVoiceSettingsAction
         val runtimeVoiceNotice = voiceNotice?.contains("voz", ignoreCase = true) == true
-        if (!voiceNotice.isNullOrBlank() || speechReadiness.notices.isNotEmpty()) {
+        if (!voiceNotice.isNullOrBlank() || speechReadiness.displayNotices.isNotEmpty()) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -425,7 +435,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         )
                     }
                 }
-                speechReadiness.notices.forEach { notice ->
+                speechReadiness.displayNotices.forEach { notice ->
                     val ready = notice.kind == SpeechReadinessNoticeKind.READY
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -453,24 +463,27 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         )
                     }
                 }
-                if (hasMissingLocalVoice || runtimeVoiceNotice) {
+                if (localVoiceSettingsAction != null || runtimeVoiceNotice) {
                     TextButton(
                         onClick = {
                             runCatching {
                                 context.startActivity(Intent("com.android.settings.TTS_SETTINGS"))
                             }
                         },
-                    ) { Text("Configurar vozes offline") }
+                        enabled = localVoiceSettingsAction?.enabled ?: true,
+                    ) {
+                        Text(localVoiceSettingsAction?.label ?: "Configurar vozes offline")
+                    }
                 }
             }
         }
 
-        val englishCapability = speechCapabilities[englishLessonState.dialect]
-        if (englishLessonState.active &&
-            englishCapability?.languagePackStatus == LanguagePackStatus.DOWNLOAD_AVAILABLE
-        ) {
-            OutlinedButton(onClick = viewModel::requestEnglishLanguagePack) {
-                Text("Baixar reconhecimento de ingles")
+        speechReadiness.languagePackDownloadActions.forEach { action ->
+            OutlinedButton(
+                onClick = { viewModel.requestLanguagePack(action.locale) },
+                enabled = action.enabled,
+            ) {
+                Text(action.label)
             }
         }
 

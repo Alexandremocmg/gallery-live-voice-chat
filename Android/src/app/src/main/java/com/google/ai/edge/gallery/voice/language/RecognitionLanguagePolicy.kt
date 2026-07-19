@@ -12,6 +12,8 @@ data class SpeechRecognitionRequest(
   val detectionEnabled: Boolean = false,
   val switchingEnabled: Boolean = false,
   val switchingSensitivity: LanguageSwitchingSensitivity = LanguageSwitchingSensitivity.BALANCED,
+  val possiblyCompleteSilenceMs: Long = DEFAULT_POSSIBLY_COMPLETE_SILENCE_MS,
+  val completeSilenceMs: Long = DEFAULT_COMPLETE_SILENCE_MS,
 ) {
   init {
     require(primaryLocale in allowedLocales) { "Primary locale must be allowed" }
@@ -62,18 +64,21 @@ object RecognitionLanguagePolicy {
     }
 
     val bilingualLocales = listOf(SpeechLocale.PT_BR, englishDialect).distinct()
-    val bothPacksInstalled =
-      bilingualLocales.all { locale ->
-        capabilities[locale]?.languagePackStatus == LanguagePackStatus.INSTALLED
-      }
+    val bilingualOfflineReady =
+      bilingualLocales.all { locale -> capabilities[locale]?.isRecognitionReadyOffline == true }
+    if (!bilingualOfflineReady) {
+      return SpeechRecognitionRequest.single(primaryLocale)
+    }
     return SpeechRecognitionRequest(
       primaryLocale = primaryLocale,
       allowedLocales = bilingualLocales,
       detectionEnabled = true,
-      switchingEnabled = bothPacksInstalled,
+      switchingEnabled = true,
       switchingSensitivity = LanguageSwitchingSensitivity.BALANCED,
     )
   }
 }
 
 private const val ANDROID_14_API_LEVEL = 34
+private const val DEFAULT_POSSIBLY_COMPLETE_SILENCE_MS = 1_000L
+private const val DEFAULT_COMPLETE_SILENCE_MS = 1_500L

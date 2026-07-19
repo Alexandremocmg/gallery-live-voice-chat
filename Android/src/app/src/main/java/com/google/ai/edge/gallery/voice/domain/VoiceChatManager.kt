@@ -26,8 +26,12 @@ import com.google.ai.edge.gallery.voice.language.SpeechChunk
 import com.google.ai.edge.gallery.voice.language.SpeechChunkQueue
 import com.google.ai.edge.gallery.voice.language.SpeechLanguageDetection
 import com.google.ai.edge.gallery.voice.language.SpeechLocale
+import com.google.ai.edge.gallery.voice.language.SpeechRecognitionErrorRecoveryPolicy
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionRequest
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionResult
+import com.google.ai.edge.gallery.voice.language.SpeechRecognitionRuntimeError
+import com.google.ai.edge.gallery.voice.language.TtsPlaybackErrorRecoveryPolicy
+import com.google.ai.edge.gallery.voice.language.TtsPlaybackRuntimeError
 import com.google.ai.edge.gallery.voice.language.TtsVoiceSafetyPolicy
 import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 import com.google.ai.edge.gallery.voice.conversation.PlaybackChunk
@@ -173,7 +177,14 @@ class VoiceChatManager(
                 override fun onStart(utteranceId: String?) {
                     _speechState.value = SpeechState.Speaking
                     if (onVoiceBargeIn != null) {
-                        bargeInDetector.start(audioMonitorScope) {
+                        val activeChunk = synchronized(ttsQueueLock) { activeQueuedSpeech }
+                        val bargeInConfig = activeChunk
+                            ?.let(BargeInSensitivityPolicy::configFor)
+                            ?: BargeInSensitivityPolicy.BALANCED
+                        bargeInDetector.start(
+                            scope = audioMonitorScope,
+                            config = bargeInConfig,
+                        ) {
                             if (interruptSpeaking()) onVoiceBargeIn?.invoke()
                         }
                     }
@@ -327,6 +338,14 @@ class VoiceChatManager(
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                request.possiblyCompleteSilenceMs.toInt(),
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                request.completeSilenceMs.toInt(),
+            )
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 putExtra(RecognizerIntent.EXTRA_REQUEST_WORD_CONFIDENCE, true)
                 putExtra(RecognizerIntent.EXTRA_REQUEST_WORD_TIMING, true)
@@ -349,6 +368,14 @@ class VoiceChatManager(
                 }
             }
         }
+    }
+
+    fun refreshSpeechReadiness() {
+        if (ttsInitialized) {
+            catalogLocalVoices()
+            _localTtsAvailabilityKnown.value = true
+        }
+        refreshLanguageCapabilities()
     }
 
     fun refreshLanguageCapabilities() {
@@ -425,6 +452,26 @@ class VoiceChatManager(
         )
     }
 
+    private fun updateLocalTtsCapability(
+        locale: SpeechLocale,
+        localTtsAvailable: Boolean,
+    ) {
+        val current = _speechCapabilities.value[locale]
+        val capability =
+            current?.copy(localTtsAvailable = localTtsAvailable)
+                ?: SpeechCapability(
+                    locale = locale,
+                    backend = recognitionBackend,
+                    languagePackStatus = LanguagePackStatus.UNKNOWN,
+                    localTtsAvailable = localTtsAvailable,
+                )
+        _speechCapabilities.value = _speechCapabilities.value + (locale to capability)
+        Log.d(
+            TAG,
+            "TTS capability: locale=${locale.languageTag}, localTts=${capability.localTtsAvailable}",
+        )
+    }
+
     fun stopListening() {
         speechRecognizer?.stopListening()
     }
@@ -486,8 +533,10 @@ class VoiceChatManager(
             )
         ) {
             Log.e(TAG, "Cannot speak ${queued.locale.languageTag}: no compatible local voice installed")
-            _voiceNotice.value =
-                "A voz ${queued.locale.shortLabel} offline precisa ser instalada nas configuracoes de voz do celular."
+            applyTtsPlaybackErrorRecovery(
+                TtsPlaybackRuntimeError.MISSING_LOCAL_VOICE,
+                queued.locale,
+            )
             speakNextQueuedChunk()
             return
         }
@@ -505,9 +554,11 @@ class VoiceChatManager(
                 languageResult == TextToSpeech.LANG_NOT_SUPPORTED ||
                 voiceResult == TextToSpeech.ERROR
         ) {
-            _voiceNotice.value =
-                "A voz ${queued.locale.shortLabel} local esta incompleta. Instale os dados de voz nas configuracoes do celular."
-            failUtterance(utteranceId, TextToSpeech.ERROR)
+            applyTtsPlaybackErrorRecovery(
+                TtsPlaybackRuntimeError.INCOMPLETE_LOCAL_VOICE_DATA,
+                queued.locale,
+            )
+            failUtterance(utteranceId, TextToSpeech.ERROR, recoverTtsError = false)
             return
         }
         val speechRate =
@@ -544,14 +595,38 @@ class VoiceChatManager(
         if (hasMore) speakNextQueuedChunk() else _speechState.value = SpeechState.Idle
     }
 
-    private fun failUtterance(utteranceId: String?, errorCode: Int) {
+    private fun applyTtsPlaybackErrorRecovery(
+        error: TtsPlaybackRuntimeError,
+        locale: SpeechLocale,
+    ) {
+        val recovery =
+            TtsPlaybackErrorRecoveryPolicy.recover(
+                error = error,
+                locale = locale,
+            ) ?: return
+        updateLocalTtsCapability(recovery.locale, recovery.localTtsAvailable)
+        _voiceNotice.value = recovery.voiceNotice
+    }
+
+    private fun failUtterance(
+        utteranceId: String?,
+        errorCode: Int,
+        recoverTtsError: Boolean = true,
+    ) {
         Log.e(TAG, "TTS error $errorCode for $utteranceId")
+        val failedLocale: SpeechLocale?
         val hasMore = synchronized(ttsQueueLock) {
             if (utteranceId != null && activeUtteranceId != utteranceId) return
+            failedLocale = activeQueuedSpeech?.locale
             activeUtteranceId = null
             activeQueuedSpeech = null
             activeRangeStart = 0
             ttsQueue.isNotEmpty()
+        }
+        if (recoverTtsError) {
+            failedLocale?.let { locale ->
+                applyTtsPlaybackErrorRecovery(TtsPlaybackRuntimeError.UTTERANCE_REJECTED, locale)
+            }
         }
         if (hasMore) speakNextQueuedChunk() else _speechState.value = SpeechState.Idle
     }
@@ -663,19 +738,17 @@ class VoiceChatManager(
             SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Nenhuma fala foi detectada"
             SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "Muitas tentativas de reconhecimento"
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> {
-                updateCapability(activeListeningLocale, LanguagePackStatus.UNSUPPORTED)
-                _voiceNotice.value =
-                    "Este idioma nao e suportado pelo reconhecimento local deste celular."
+                applyRecognitionErrorRecovery(SpeechRecognitionRuntimeError.LANGUAGE_NOT_SUPPORTED)
                 "Idioma nao suportado pelo reconhecimento local"
             }
             SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
-                updateCapability(activeListeningLocale, LanguagePackStatus.DOWNLOAD_AVAILABLE)
-                _voiceNotice.value =
-                    "Baixe o pacote offline de ${activeListeningLocale.shortLabel} antes de falar."
+                applyRecognitionErrorRecovery(SpeechRecognitionRuntimeError.LANGUAGE_UNAVAILABLE)
                 "Pacote offline do idioma ainda nao instalado"
             }
-            SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT ->
+            SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT -> {
+                applyRecognitionErrorRecovery(SpeechRecognitionRuntimeError.CANNOT_CHECK_SUPPORT)
                 "Nao foi possivel verificar o suporte local deste idioma"
+            }
             else -> "Nao consegui entender. Tente novamente."
         }
         Log.e("VoiceChatManager", "SpeechRecognizer error: $errorMessage")
@@ -683,6 +756,16 @@ class VoiceChatManager(
             recreateSpeechRecognizer()
         }
         _speechState.value = SpeechState.Error(errorMessage)
+    }
+
+    private fun applyRecognitionErrorRecovery(error: SpeechRecognitionRuntimeError) {
+        val recovery =
+            SpeechRecognitionErrorRecoveryPolicy.recover(
+                error = error,
+                locale = activeListeningLocale,
+            ) ?: return
+        updateCapability(activeListeningLocale, recovery.languagePackStatus)
+        _voiceNotice.value = recovery.voiceNotice
     }
 
     private fun recreateSpeechRecognizer() {

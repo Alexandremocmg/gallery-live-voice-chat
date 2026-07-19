@@ -62,6 +62,7 @@ import com.google.ai.edge.gallery.voice.language.SpeechLanguageDetection
 import com.google.ai.edge.gallery.voice.language.SpeechLocale
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionResult
 import com.google.ai.edge.gallery.voice.language.SpeechReviewPolicy
+import com.google.ai.edge.gallery.voice.language.SpeechReadinessRefreshPolicy
 import com.google.ai.edge.gallery.voice.language.RecognitionBackend
 import com.google.ai.edge.gallery.voice.intelligence.CognitiveMode
 import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
@@ -82,6 +83,8 @@ import com.google.ai.edge.gallery.voice.conversation.ConversationMutationDecisio
 import com.google.ai.edge.gallery.voice.conversation.ConversationMutationPolicy
 import com.google.ai.edge.gallery.voice.conversation.ConversationMessageSource
 import com.google.ai.edge.gallery.voice.conversation.ConversationToken
+import com.google.ai.edge.gallery.voice.conversation.ConversationTurnAccumulator
+import com.google.ai.edge.gallery.voice.conversation.ConversationTurnTimingPolicy
 import com.google.ai.edge.gallery.voice.conversation.VOICE_CONVERSATION_SCHEMA_VERSION
 import com.google.ai.edge.gallery.voice.conversation.VoiceConversationPhase
 import com.google.ai.edge.gallery.voice.conversation.VoiceConversationStateMachine
@@ -96,6 +99,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -214,6 +219,7 @@ class VoiceViewModel(
   private var downloadedVoiceModels: List<Model> = emptyList()
   private var activeTask: Task? = null
   private var automaticVoiceDownloadRequested = false
+  private var lastSpeechReadinessRefreshMs: Long? = null
   private var isConversationReset = false
   private val responseGenerationInProgress = AtomicBoolean(false)
   private val generationEpoch = AtomicLong(0L)
@@ -254,6 +260,8 @@ class VoiceViewModel(
   @Volatile private var sessionRevision = 0L
   private val persistedRevisions = mutableMapOf<String, Long>()
   @Volatile private var pendingConversationRewrite: PendingConversationRewrite? = null
+  private var pendingRecognitionContinuation: SpeechRecognitionResult? = null
+  private var pendingRecognitionContinuationJob: Job? = null
 
   private val systemPrompt =
     """
@@ -377,10 +385,11 @@ class VoiceViewModel(
             _automaticLanguageSwitchingEnabled.value = false
             _recognizedText.value = state.result.text
             if (SpeechReviewPolicy.shouldReview(state.result)) {
+              cancelPendingRecognitionContinuation()
               _uiState.value = VoiceUiState.ReviewingTranscript(state.result.text)
               conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
             } else {
-              submitRecognitionResult(state.result, ConversationMessageSource.VOICE)
+              handleRecognitionResultWithContinuation(state.result)
             }
           }
           is SpeechState.Listening -> {
@@ -406,7 +415,13 @@ class VoiceViewModel(
             _automaticLanguageSwitchingEnabled.value = false
             if (_uiState.value is VoiceUiState.Speaking && !responseGenerationInProgress.get()) {
               _uiState.value = VoiceUiState.Idle
-              kotlinx.coroutines.delay(800)
+              val timing =
+                ConversationTurnTimingPolicy.decide(
+                  profile = _responseProfile.value,
+                  englishActivity = englishState.activity,
+                  recognizedText = _recognizedText.value,
+                )
+              delay(timing.autoRestartDelayMs)
               if (_uiState.value is VoiceUiState.Idle) startListening()
             } else if (_uiState.value is VoiceUiState.Speaking) {
               _uiState.value = VoiceUiState.Generating
@@ -451,13 +466,24 @@ class VoiceViewModel(
     if (model != null && modelManagerViewModel.uiState.value.isModelInitialized(model)) {
       _recognizedText.value = ""
       val listeningLocale = conversationLanguageCoordinator.nextListeningLocale(englishState)
-      val recognitionRequest =
+      val baseRecognitionRequest =
         RecognitionLanguagePolicy.create(
           apiLevel = Build.VERSION.SDK_INT,
           establishedLocale = listeningLocale,
           englishDialect = englishState.dialect,
           capabilities = voiceChatManager.speechCapabilities.value,
           englishActivity = englishState.activity,
+        )
+      val listeningTiming =
+        ConversationTurnTimingPolicy.decide(
+          profile = _responseProfile.value,
+          englishActivity = englishState.activity,
+          recognizedText = "",
+        )
+      val recognitionRequest =
+        baseRecognitionRequest.copy(
+          possiblyCompleteSilenceMs = listeningTiming.possiblyCompleteSilenceMs,
+          completeSilenceMs = listeningTiming.completeSilenceMs,
         )
       val locale = recognitionRequest.primaryLocale
       val recognitionCapability = voiceChatManager.speechCapabilities.value[locale]
@@ -512,6 +538,7 @@ class VoiceViewModel(
 
   fun prepareForMediaAttachment() {
     if (_uiState.value !is VoiceUiState.Listening) return
+    cancelPendingRecognitionContinuation()
     if (pronunciationRecorder.isRecording) {
       pronunciationRecorder.stop(submit = false)
     } else {
@@ -548,8 +575,24 @@ class VoiceViewModel(
     modelManagerViewModel.downloadModel(task, recommended)
   }
 
+  fun requestLanguagePack(locale: SpeechLocale) {
+    voiceChatManager.requestLanguageModelDownload(locale)
+  }
+
+  fun refreshSpeechReadinessOnResume(nowMs: Long = System.currentTimeMillis()) {
+    val decision =
+      SpeechReadinessRefreshPolicy.decide(
+        nowMs = nowMs,
+        lastRefreshMs = lastSpeechReadinessRefreshMs,
+      )
+    lastSpeechReadinessRefreshMs = decision.nextRefreshMs
+    if (decision.shouldRefresh) {
+      voiceChatManager.refreshSpeechReadiness()
+    }
+  }
+
   fun requestEnglishLanguagePack() {
-    voiceChatManager.requestLanguageModelDownload(englishState.dialect)
+    requestLanguagePack(englishState.dialect)
   }
 
   fun submitText(text: String): Boolean = submitText(text, ConversationMessageSource.TEXT)
@@ -557,8 +600,9 @@ class VoiceViewModel(
   private fun submitText(
     text: String,
     source: ConversationMessageSource,
-  ): Boolean =
-    submitRecognitionResult(
+  ): Boolean {
+    cancelPendingRecognitionContinuation()
+    return submitRecognitionResult(
       result =
         SpeechRecognitionResult(
           text = text,
@@ -567,6 +611,71 @@ class VoiceViewModel(
         ),
       source = source,
     )
+  }
+
+  private suspend fun handleRecognitionResultWithContinuation(result: SpeechRecognitionResult) {
+    val pending = pendingRecognitionContinuation
+    if (pending != null) {
+      pendingRecognitionContinuationJob?.cancel()
+      pendingRecognitionContinuationJob = null
+      pendingRecognitionContinuation = null
+      val merged =
+        pending.copy(
+          text = ConversationTurnAccumulator.merge(pending.text, result.text),
+          alternatives = pending.alternatives + result.alternatives,
+          confidenceScores = pending.confidenceScores + result.confidenceScores,
+          words = pending.words + result.words,
+          languageDetection = result.languageDetection ?: pending.languageDetection,
+        )
+      _recognizedText.value = merged.text
+      val timing =
+        ConversationTurnTimingPolicy.decide(
+          profile = _responseProfile.value,
+          englishActivity = englishState.activity,
+          recognizedText = merged.text,
+        )
+      delay(timing.submitDelayMs)
+      submitRecognitionResult(merged, ConversationMessageSource.VOICE)
+      return
+    }
+
+    val timing =
+      ConversationTurnTimingPolicy.decide(
+        profile = _responseProfile.value,
+        englishActivity = englishState.activity,
+        recognizedText = result.text,
+      )
+    if (
+      ConversationTurnAccumulator.shouldWaitForContinuation(
+        profile = _responseProfile.value,
+        englishActivity = englishState.activity,
+        recognizedText = result.text,
+      )
+    ) {
+      pendingRecognitionContinuation = result
+      pendingRecognitionContinuationJob?.cancel()
+      pendingRecognitionContinuationJob =
+        viewModelScope.launch(Dispatchers.Main) {
+          delay(ConversationTurnAccumulator.continuationWindowMs(timing))
+          val expired = pendingRecognitionContinuation ?: return@launch
+          pendingRecognitionContinuation = null
+          pendingRecognitionContinuationJob = null
+          voiceChatManager.cancelListening()
+          submitRecognitionResult(expired, ConversationMessageSource.VOICE)
+        }
+      startListening()
+      return
+    }
+
+    delay(timing.submitDelayMs)
+    submitRecognitionResult(result, ConversationMessageSource.VOICE)
+  }
+
+  private fun cancelPendingRecognitionContinuation() {
+    pendingRecognitionContinuationJob?.cancel()
+    pendingRecognitionContinuationJob = null
+    pendingRecognitionContinuation = null
+  }
 
   private fun submitRecognitionResult(
     result: SpeechRecognitionResult,
@@ -758,6 +867,7 @@ class VoiceViewModel(
 
   fun speakMessage(text: String) {
     if (text.isBlank()) return
+    cancelPendingRecognitionContinuation()
     voiceChatManager.stopSpeaking()
     voiceChatManager.speak(text)
   }
@@ -834,6 +944,7 @@ class VoiceViewModel(
   }
 
   fun startNewSession() {
+    cancelPendingRecognitionContinuation()
     voiceChatManager.stopSpeaking()
     pronunciationRecorder.stop(submit = false)
     generationEpoch.incrementAndGet()
@@ -1413,6 +1524,7 @@ class VoiceViewModel(
   }
 
   private fun interruptCurrentResponseAndListen(ttsAlreadyInterrupted: Boolean) {
+    cancelPendingRecognitionContinuation()
     val interrupted = ttsAlreadyInterrupted || voiceChatManager.interruptSpeaking()
     if (!interrupted) return
     generationEpoch.incrementAndGet()
@@ -1605,6 +1717,7 @@ class VoiceViewModel(
   }
 
   private fun restoreSession(session: ChatSessionProto) {
+    cancelPendingRecognitionContinuation()
     voiceChatManager.stopSpeaking()
     pronunciationRecorder.stop(submit = false)
     generationEpoch.incrementAndGet()

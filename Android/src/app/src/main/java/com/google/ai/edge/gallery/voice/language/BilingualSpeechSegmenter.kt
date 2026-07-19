@@ -121,6 +121,39 @@ class BilingualSpeechSegmenter(
       }
     }
 
+    ENGLISH_CUE_UNQUOTED_PATTERN.findAll(text).forEach { match ->
+      val start = match.range.last + 1
+      val end = englishCueSpanEnd(text, start)
+      if (end > start) {
+        val candidate = text.substring(start, end)
+        if (isEnglishPracticeText(candidate)) {
+          spans.add(start until end)
+        }
+      }
+    }
+
+    ENGLISH_IS_CUE_PATTERN.findAll(text).forEach { match ->
+      val start = match.range.last + 1
+      val end = englishCueSpanEnd(text, start)
+      if (end > start) {
+        val candidate = text.substring(start, end)
+        if (isEnglishPracticeText(candidate)) {
+          spans.add(start until end)
+        }
+      }
+    }
+
+    TRANSLATION_IS_CUE_PATTERN.findAll(text).forEach { match ->
+      val start = match.range.last + 1
+      val end = englishCueSpanEnd(text, start)
+      if (end > start) {
+        val candidate = text.substring(start, end)
+        if (isEnglishPracticeText(candidate)) {
+          spans.add(start until end)
+        }
+      }
+    }
+
     val mergedSpans = mergeRanges(spans).filter { range -> range.first <= range.last }
     if (mergedSpans.isEmpty()) return listOf(SpeechChunk(text, expectedLocale))
 
@@ -226,4 +259,16 @@ private val ENGLISH_CUE_QUOTE_PATTERN =
 private val ENGLISH_CUE_COLON_PATTERN =
   Regex(
     "(?i)\\b(?:repita|diga|fale|pronuncie|em ingles|em inglês|ingles|inglês|como se diz|significa)\\s*:",
+  )
+private val ENGLISH_CUE_UNQUOTED_PATTERN =
+  Regex(
+    "(?i)\\b(?:repita|diga|fale|pronuncie|dizer|diga para mim|repita comigo)\\s+",
+  )
+private val ENGLISH_IS_CUE_PATTERN =
+  Regex(
+    "(?i)\\b(?:em ingles|em inglês|ingles|inglês)\\s+(?:e|é|eh|fica|seria|se diz|voce fala|você fala)\\s+",
+  )
+private val TRANSLATION_IS_CUE_PATTERN =
+  Regex(
+    "(?i)\\b(?:traducao|tradução)\\s+de\\b.+?\\s+(?:e|é|eh|fica|seria)\\s+",
   )

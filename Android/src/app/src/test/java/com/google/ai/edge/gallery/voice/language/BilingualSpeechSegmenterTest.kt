@@ -68,6 +68,55 @@ class BilingualSpeechSegmenterTest {
   }
 
   @Test
+  fun unquotedEnglishAfterPracticeCueUsesEnglishVoice() {
+    val segmenter = segmenter(expected = SpeechLocale.PT_BR, dialect = SpeechLocale.EN_GB)
+
+    val chunks = segmenter.append("Agora fale good morning.").chunks + segmenter.finish().chunks
+
+    assertEquals(
+      listOf(SpeechLocale.PT_BR, SpeechLocale.EN_GB),
+      chunks.map(SpeechChunk::locale),
+    )
+    assertEquals("Agora fale good morning.", chunks.joinToString("") { it.text })
+  }
+
+  @Test
+  fun englishPhraseAfterEnglishIsCueUsesEnglishVoice() {
+    val segmenter = segmenter(expected = SpeechLocale.PT_BR)
+
+    val chunks = segmenter.append("A frase em inglês é good morning.").chunks + segmenter.finish().chunks
+
+    assertEquals(
+      listOf(SpeechLocale.PT_BR, SpeechLocale.EN_US),
+      chunks.map(SpeechChunk::locale),
+    )
+    assertEquals("A frase em inglês é good morning.", chunks.joinToString("") { it.text })
+  }
+
+  @Test
+  fun translationCueCanMarkShortEnglishPhrase() {
+    val segmenter = segmenter(expected = SpeechLocale.PT_BR)
+
+    val chunks = segmenter.append("A tradução de bom dia é good morning.").chunks + segmenter.finish().chunks
+
+    assertEquals(
+      listOf(SpeechLocale.PT_BR, SpeechLocale.EN_US),
+      chunks.map(SpeechChunk::locale),
+    )
+    assertEquals("A tradução de bom dia é good morning.", chunks.joinToString("") { it.text })
+  }
+
+  @Test
+  fun technicalTermsNearPortugueseVerbsStayPortuguese() {
+    val segmenter = segmenter(expected = SpeechLocale.PT_BR)
+
+    val chunks = segmenter.append("Agora fale sobre JSON e API.").chunks + segmenter.finish().chunks
+
+    assertEquals(listOf(SpeechLocale.PT_BR), chunks.map(SpeechChunk::locale))
+    assertEquals("Agora fale sobre JSON e API.", chunks.joinToString("") { it.text })
+  }
+
+  @Test
   fun taggedTeachingResponseProducesValidatedPortugueseAndEnglishChunks() {
     val input =
       "[[pt-BR]]Quero explicar como isso funciona. " +

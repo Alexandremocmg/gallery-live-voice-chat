@@ -19,7 +19,11 @@ class VoiceBargeInDetector {
   @Volatile private var activeSession: DetectorSession? = null
 
   @SuppressLint("MissingPermission")
-  fun start(scope: CoroutineScope, onVoiceDetected: () -> Unit) {
+  fun start(
+    scope: CoroutineScope,
+    config: VoiceActivityDetectorConfig = BargeInSensitivityPolicy.BALANCED,
+    onVoiceDetected: () -> Unit,
+  ) {
     synchronized(sessionLock) {
       if (activeSession != null) return
     }
@@ -55,7 +59,7 @@ class VoiceBargeInDetector {
           null
         }
       runCatching { echoCanceler?.enabled = true }
-      val detector = AdaptiveVoiceActivityDetector()
+      val detector = AdaptiveVoiceActivityDetector(config)
       detector.reset(SystemClock.elapsedRealtime())
       val samples = ShortArray(minBuffer / 2)
       try {
