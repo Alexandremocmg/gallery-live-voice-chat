@@ -37,6 +37,7 @@ import com.google.ai.edge.gallery.voice.language.SpeechRecognitionRuntimeError
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionTransientError
 import com.google.ai.edge.gallery.voice.language.TtsPlaybackErrorRecoveryPolicy
 import com.google.ai.edge.gallery.voice.language.TtsPlaybackRuntimeError
+import com.google.ai.edge.gallery.voice.language.TtsQueuePolicy
 import com.google.ai.edge.gallery.voice.language.TtsVoiceSafetyPolicy
 import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 import com.google.ai.edge.gallery.voice.conversation.PlaybackChunk
@@ -186,6 +187,15 @@ class VoiceChatManager(
 
             textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
+                    val callbackBelongsToActiveUtterance = synchronized(ttsQueueLock) {
+                        utteranceId != null && utteranceId == activeUtteranceId
+                    }
+                    val mayPublish =
+                        SpeechStatePublicationPolicy.shouldPublishTtsState(
+                            recognitionSessionActive = recognitionSessionActive,
+                            callbackBelongsToActiveUtterance = callbackBelongsToActiveUtterance,
+                        )
+                    if (!mayPublish) return
                     _speechState.value = SpeechState.Speaking
                     if (onVoiceBargeIn != null) {
                         val activeChunk = synchronized(ttsQueueLock) { activeQueuedSpeech }
@@ -233,6 +243,11 @@ class VoiceChatManager(
                     if (!interrupted) finishUtterance(utteranceId)
                 }
             })
+            synchronized(ttsQueueLock) {
+                if (ttsQueue.isNotEmpty() && activeUtteranceId == null) {
+                    speakNextQueuedChunk()
+                }
+            }
         } else {
             Log.e(TAG, "Initialization of TTS failed.")
             publishTtsCapabilities()
@@ -310,6 +325,9 @@ class VoiceChatManager(
         resetRetry: Boolean,
     ) {
         if (resetRetry) recognitionRetryAttempt = 0
+        // ASR and TTS cannot share the microphone/speech state safely. A new recognition
+        // session always owns the audio channel and cancels stale playback callbacks.
+        stopSpeaking()
         discardCurrentRecognitionResult = false
         activeLanguageDetection = null
         recognitionSessionActive = false
@@ -519,11 +537,25 @@ class VoiceChatManager(
 
     fun speak(chunk: SpeechChunk, flushQueue: Boolean = true) {
         if (chunk.text.isBlank()) return
-
+        if (TtsQueuePolicy.shouldDefer(chunk.text, ttsInitialized)) {
+            synchronized(ttsQueueLock) {
+                if (flushQueue) {
+                    textToSpeech?.stop()
+                    ttsQueue.clear()
+                    activeUtteranceId = null
+                    activeQueuedSpeech = null
+                    activeRangeStart = 0
+                    _playbackCheckpoint.value = null
+                }
+                ttsQueue.addLast(chunk)
+            }
+            _voiceNotice.value = "A fala está sendo preparada; será reproduzida assim que o áudio estiver pronto."
+            return
+        }
         val engine = textToSpeech
-        if (!ttsInitialized || engine == null) {
-            Log.e(TAG, "Speech skipped because the TTS engine is not initialized")
-            _speechState.value = SpeechState.Idle
+        if (engine == null) {
+            Log.e(TAG, "Speech skipped because the TTS engine is unavailable")
+            _speechState.value = SpeechState.Error("O mecanismo de fala não está disponível")
             return
         }
 
