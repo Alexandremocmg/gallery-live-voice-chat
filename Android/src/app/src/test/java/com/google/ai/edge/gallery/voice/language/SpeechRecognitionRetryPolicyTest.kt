@@ -51,6 +51,21 @@ class SpeechRecognitionRetryPolicyTest {
   }
 
   @Test
+  fun noMatchWithoutSpeechStartRetriesAfterDevicePrematurelyClosesMic() {
+    val decision =
+      SpeechRecognitionRetryPolicy.decide(
+        error = SpeechRecognitionTransientError.NO_MATCH,
+        attempt = 0,
+        speechStarted = false,
+        elapsedMs = 2_455L,
+      )
+
+    assertTrue(decision.shouldRetry)
+    assertEquals(300L, decision.retryDelayMs)
+    assertEquals(1, decision.nextAttempt)
+  }
+
+  @Test
   fun repeatedTransientErrorStopsRetrying() {
     val decision =
       SpeechRecognitionRetryPolicy.decide(

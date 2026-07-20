@@ -36,8 +36,8 @@ object SpeechRecognitionRetryPolicy {
         SpeechRecognitionTransientError.RECOGNIZER_BUSY -> 650L
         SpeechRecognitionTransientError.CLIENT,
         SpeechRecognitionTransientError.SERVER_DISCONNECTED -> 450L
-        SpeechRecognitionTransientError.SPEECH_TIMEOUT -> 300L
-        SpeechRecognitionTransientError.NO_MATCH -> if (speechStarted || elapsedMs < 1_500L) 300L else 0L
+        SpeechRecognitionTransientError.SPEECH_TIMEOUT,
+        SpeechRecognitionTransientError.NO_MATCH -> 300L
       }
 
     return SpeechRecognitionRetryDecision(
