@@ -59,23 +59,12 @@ object RecognitionLanguagePolicy {
         EnglishActivity.REPEAT -> englishDialect
       }
 
-    if (apiLevel < ANDROID_14_API_LEVEL || !languageDetectionSupported) {
-      return SpeechRecognitionRequest.single(primaryLocale)
-    }
-
-    val bilingualLocales = listOf(SpeechLocale.PT_BR, englishDialect).distinct()
-    val bilingualOfflineReady =
-      bilingualLocales.all { locale -> capabilities[locale]?.isRecognitionReadyOffline == true }
-    if (!bilingualOfflineReady) {
-      return SpeechRecognitionRequest.single(primaryLocale)
-    }
-    return SpeechRecognitionRequest(
-      primaryLocale = primaryLocale,
-      allowedLocales = bilingualLocales,
-      detectionEnabled = true,
-      switchingEnabled = true,
-      switchingSensitivity = LanguageSwitchingSensitivity.BALANCED,
-    )
+    // On-device multilingual detection/switching is not reliable enough to own the microphone.
+    // Physical-device logcat showed it repeatedly closing a ready recognition session with
+    // NO_MATCH after about 1.2 seconds, before onBeginningOfSpeech. The conversation state
+    // already determines whether this turn expects Portuguese or the selected English dialect,
+    // so use that locale directly and keep bilingual routing above the platform recognizer.
+    return SpeechRecognitionRequest.single(primaryLocale)
   }
 }
 

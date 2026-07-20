@@ -37,7 +37,7 @@ class RecognitionLanguagePolicyTest {
   }
 
   @Test
-  fun android34WithBothPacksUsesBalancedBilingualSwitching() {
+  fun android34WithBothPacksUsesStableEstablishedLocale() {
     val request =
       RecognitionLanguagePolicy.create(
         apiLevel = 34,
@@ -46,10 +46,9 @@ class RecognitionLanguagePolicyTest {
         capabilities = installedCapabilities(SpeechLocale.EN_GB),
       )
 
-    assertEquals(listOf(SpeechLocale.PT_BR, SpeechLocale.EN_GB), request.allowedLocales)
-    assertTrue(request.detectionEnabled)
-    assertTrue(request.switchingEnabled)
-    assertEquals(LanguageSwitchingSensitivity.BALANCED, request.switchingSensitivity)
+    assertEquals(listOf(SpeechLocale.PT_BR), request.allowedLocales)
+    assertFalse(request.detectionEnabled)
+    assertFalse(request.switchingEnabled)
   }
 
   @Test
