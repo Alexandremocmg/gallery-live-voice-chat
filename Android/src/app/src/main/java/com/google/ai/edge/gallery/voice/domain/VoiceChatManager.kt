@@ -25,6 +25,7 @@ import com.google.ai.edge.gallery.voice.language.PartialRecognitionRecoveryPolic
 import com.google.ai.edge.gallery.voice.language.PartialRecognitionTerminalError
 import com.google.ai.edge.gallery.voice.language.RecognizedWord
 import com.google.ai.edge.gallery.voice.language.RecognitionBackend
+import com.google.ai.edge.gallery.voice.language.SpeechBackendFailureRecoveryPolicy
 import com.google.ai.edge.gallery.voice.language.SpeechBackendPolicy
 import com.google.ai.edge.gallery.voice.language.SpeechCapability
 import com.google.ai.edge.gallery.voice.language.SpeechChunk
@@ -61,6 +62,7 @@ class VoiceChatManager(
     companion object {
         private const val TAG = "VoiceChatManager"
         private const val GOOGLE_SPEECH_SERVICES_PACKAGE = "com.google.android.tts"
+        private const val SYSTEM_RECOGNIZER_FALLBACK_DELAY_MS = 450L
         private val PT_BR = SpeechLocale.PT_BR.locale
     }
 
@@ -367,7 +369,7 @@ class VoiceChatManager(
         Log.d(
             TAG,
             "Recognition request #$recognitionSessionId attempt=$recognitionRetryAttempt: " +
-                "primary=${request.primaryLocale.languageTag}, " +
+                "primary=${request.primaryLocale.languageTag}, backend=$recognitionBackend, " +
                 "detection=${request.detectionEnabled}, switching=${request.switchingEnabled}",
         )
         try {
@@ -869,12 +871,24 @@ class VoiceChatManager(
             return
         }
         val elapsedMs = (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
+        val partialAvailable = activePartialRecognitionResult?.text?.isNotBlank() == true
         if (recoverPartialRecognition(error.toPartialRecognitionTerminalError())) {
             return
         }
         activePartialRecognitionResult = null
         clearRecognitionSession()
-        if (!manualStopRequested && retryTransientRecognitionError(error, elapsedMs)) {
+        val retryScheduled = !manualStopRequested && retryTransientRecognitionError(error, elapsedMs)
+        if (retryScheduled) {
+            return
+        }
+        val transientError = error.toTransientRecognitionError()
+        if (transientError != null &&
+            fallbackFromUnhealthyOnDeviceRecognizer(
+                error = transientError,
+                retryScheduled = retryScheduled,
+                partialAvailable = partialAvailable,
+            )
+        ) {
             return
         }
         val errorMessage = when (error) {
@@ -944,6 +958,69 @@ class VoiceChatManager(
                 PartialRecognitionTerminalError.SERVER_DISCONNECTED
             else -> PartialRecognitionTerminalError.NON_RECOVERABLE
         }
+
+    private fun fallbackFromUnhealthyOnDeviceRecognizer(
+        error: SpeechRecognitionTransientError,
+        retryScheduled: Boolean,
+        partialAvailable: Boolean,
+    ): Boolean {
+        val systemAvailable = SpeechRecognizer.isRecognitionAvailable(context)
+        if (!SpeechBackendFailureRecoveryPolicy.shouldFallback(
+                currentBackend = recognitionBackend,
+                error = error,
+                retryScheduled = retryScheduled,
+                partialAvailable = partialAvailable,
+                systemRecognizerAvailable = systemAvailable,
+                manualStopRequested = manualStopRequested,
+            )
+        ) {
+            return false
+        }
+
+        val request = activeRecognitionRequest
+        val failedSessionId = recognitionSessionId
+        val replacement =
+            try {
+                speechRecognizer?.cancel()
+                speechRecognizer?.destroy()
+                SpeechRecognizer.createSpeechRecognizer(context)
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to create system recognizer fallback", exception)
+                return false
+            }
+
+        speechRecognizer = replacement
+        recognitionBackend = RecognitionBackend.ANDROID_SYSTEM
+        recognitionRetryAttempt = 0
+        _voiceNotice.value =
+            "O reconhecedor local encerrou cedo demais; usando o servico offline alternativo."
+        Log.w(
+            TAG,
+            "Recognition backend fallback after session=$failedSessionId error=$error: " +
+                "ANDROID_ON_DEVICE -> ANDROID_SYSTEM",
+        )
+        mainHandler.postDelayed(
+            {
+                if (!RecognitionSessionPolicy.executeRetry(
+                        scheduledForSessionId = failedSessionId,
+                        activeSessionId = recognitionSessionId,
+                        recognitionSessionActive = recognitionSessionActive,
+                        manualStopRequested = manualStopRequested,
+                    )
+                ) {
+                    Log.w(
+                        TAG,
+                        "Ignoring stale backend fallback restart scheduledFor=$failedSessionId " +
+                            "activeSession=$recognitionSessionId",
+                    )
+                    return@postDelayed
+                }
+                startListeningInternal(request, resetRetry = true)
+            },
+            SYSTEM_RECOGNIZER_FALLBACK_DELAY_MS,
+        )
+        return true
+    }
 
     private fun retryTransientRecognitionError(
         error: Int,
