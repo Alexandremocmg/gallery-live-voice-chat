@@ -30,6 +30,7 @@ import com.google.ai.edge.gallery.voice.language.SpeechBackendPolicy
 import com.google.ai.edge.gallery.voice.language.SpeechCapability
 import com.google.ai.edge.gallery.voice.language.SpeechChunk
 import com.google.ai.edge.gallery.voice.language.SpeechChunkQueue
+import com.google.ai.edge.gallery.voice.language.SpeechEndpointOverridePolicy
 import com.google.ai.edge.gallery.voice.language.SpeechLanguageDetection
 import com.google.ai.edge.gallery.voice.language.SpeechLocale
 import com.google.ai.edge.gallery.voice.language.SpeechRecognitionErrorRecoveryPolicy
@@ -388,14 +389,16 @@ class VoiceChatManager(
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
-                request.possiblyCompleteSilenceMs.toInt(),
-            )
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
-                request.completeSilenceMs.toInt(),
-            )
+            if (SpeechEndpointOverridePolicy.shouldOverrideSilenceThresholds()) {
+                putExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                    request.possiblyCompleteSilenceMs.toInt(),
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                    request.completeSilenceMs.toInt(),
+                )
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 putExtra(RecognizerIntent.EXTRA_REQUEST_WORD_CONFIDENCE, true)
                 putExtra(RecognizerIntent.EXTRA_REQUEST_WORD_TIMING, true)
