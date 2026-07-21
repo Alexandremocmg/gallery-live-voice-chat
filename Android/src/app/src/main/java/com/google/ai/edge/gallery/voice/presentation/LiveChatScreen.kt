@@ -230,6 +230,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
     val voiceNotice by viewModel.voiceNotice.collectAsState()
     val speechCapabilities by viewModel.speechCapabilities.collectAsState()
     val voiceDiagnostics by viewModel.voiceDiagnostics.collectAsState()
+    val injectedAudioEnabled by viewModel.injectedAudioEnabled.collectAsState()
     val localTtsAvailabilityKnown by viewModel.localTtsAvailabilityKnown.collectAsState()
     val attachedImages by viewModel.attachedImages.collectAsState()
     val attachedAudioName by viewModel.attachedAudioName.collectAsState()
@@ -779,6 +780,21 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = "Áudio controlado",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                            Switch(
+                                checked = injectedAudioEnabled,
+                                onCheckedChange = viewModel::setControlledAudioEnabled,
+                                enabled = !isActive,
+                                modifier = Modifier.height(28.dp),
+                            )
+                        }
                         voiceDiagnostics.lastError?.let { error ->
                             Text(
                                 text = error,

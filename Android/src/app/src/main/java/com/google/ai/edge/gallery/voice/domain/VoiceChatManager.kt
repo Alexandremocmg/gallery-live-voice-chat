@@ -97,6 +97,9 @@ class VoiceChatManager(
     private var lastCompletedSpeech: SpeechChunk? = null
     private val audioMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val bargeInDetector = VoiceBargeInDetector()
+    private val injectedAudioSource = InjectedAudioSource()
+    @Volatile private var activeInjectedAudioSession: InjectedAudioSession? = null
+    private val activeSegmentTexts = mutableListOf<String>()
     private var onVoiceBargeIn: (() -> Unit)? = null
 
     private val _playbackCheckpoint = MutableStateFlow<SpeechPlaybackCheckpoint?>(null)
@@ -107,6 +110,19 @@ class VoiceChatManager(
 
     private val _diagnostics = MutableStateFlow(VoiceDiagnosticsSnapshot())
     val diagnostics: StateFlow<VoiceDiagnosticsSnapshot> = _diagnostics
+
+    private val _injectedAudioEnabled = MutableStateFlow(false)
+    val injectedAudioEnabled: StateFlow<Boolean> = _injectedAudioEnabled
+
+    fun setInjectedAudioEnabled(enabled: Boolean): Boolean {
+        if (recognitionSessionActive) {
+            _voiceNotice.value = "Finalize a escuta atual antes de mudar o audio controlado."
+            return false
+        }
+        _injectedAudioEnabled.value = enabled
+        publishDiagnostics(if (enabled) "ControlledAudioEnabled" else "Idle")
+        return true
+    }
 
     private fun publishDiagnostics(phase: String, lastError: String? = null) {
         _diagnostics.value =
@@ -359,6 +375,8 @@ class VoiceChatManager(
         discardCurrentRecognitionResult = false
         activeLanguageDetection = null
         activePartialRecognitionResult = null
+        closeInjectedAudioSession()
+        activeSegmentTexts.clear()
         recognitionSessionActive = false
         speechStartedInSession = false
         manualStopRequested = false
@@ -398,21 +416,73 @@ class VoiceChatManager(
                 "detection=${request.detectionEnabled}, switching=${request.switchingEnabled}",
         )
         try {
-            speechRecognizer?.startListening(buildRecognitionIntent(request))
+            val injectedSession = prepareInjectedAudioSession()
+            speechRecognizer?.startListening(buildRecognitionIntent(request, injectedSession))
         } catch (e: Exception) {
+            closeInjectedAudioSession()
             clearRecognitionSession()
             Log.e(TAG, "Failed to start speech recognition", e)
             _speechState.value = SpeechState.Error("Nao foi possivel iniciar o reconhecimento de voz")
         }
     }
 
-    private fun buildRecognitionIntent(request: SpeechRecognitionRequest): Intent {
+    private fun prepareInjectedAudioSession(): InjectedAudioSession? {
+        if (!InjectedAudioRecognitionPolicy.shouldUse(
+                apiLevel = Build.VERSION.SDK_INT,
+                featureEnabled = _injectedAudioEnabled.value,
+                backend = recognitionBackend,
+            )
+        ) {
+            return null
+        }
+        val session =
+            injectedAudioSource.start(audioMonitorScope) { message ->
+                mainHandler.post {
+                    Log.e(TAG, "Controlled audio failure: $message")
+                    _voiceNotice.value = message
+                    activeInjectedAudioSession?.close()
+                    activeInjectedAudioSession = null
+                }
+            }
+        activeInjectedAudioSession = session
+        if (session != null) {
+            Log.i(TAG, "Controlled PCM audio enabled for recognition #$recognitionSessionId")
+            publishDiagnostics("ControlledAudio")
+        }
+        return session
+    }
+
+    private fun closeInjectedAudioSession() {
+        activeInjectedAudioSession?.close()
+        activeInjectedAudioSession = null
+    }
+
+    private fun buildRecognitionIntent(
+        request: SpeechRecognitionRequest,
+        injectedSession: InjectedAudioSession? = null,
+    ): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, request.primaryLocale.languageTag)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && injectedSession != null) {
+                putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, injectedSession.readDescriptor)
+                putExtra(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT,
+                    InjectedAudioSource.CHANNEL_COUNT,
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,
+                    InjectedAudioSource.AUDIO_ENCODING,
+                )
+                putExtra(
+                    RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE,
+                    InjectedAudioSource.SAMPLE_RATE,
+                )
+                putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+            }
             if (SpeechEndpointOverridePolicy.shouldOverrideSilenceThresholds()) {
                 putExtra(
                     RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
@@ -553,7 +623,12 @@ class VoiceChatManager(
         mainHandler.removeCallbacksAndMessages(null)
         recognitionRetryAttempt = 0
         manualStopRequested = true
-        speechRecognizer?.stopListening()
+        val controlledAudio = activeInjectedAudioSession
+        if (controlledAudio != null) {
+            controlledAudio.stop()
+        } else {
+            speechRecognizer?.stopListening()
+        }
     }
 
     fun cancelListening() {
@@ -860,6 +935,14 @@ class VoiceChatManager(
 
         override fun onPartialResults(partialResults: Bundle?) {
             if (accept("partial")) this@VoiceChatManager.onPartialResults(partialResults)
+        }
+
+        override fun onSegmentResults(segmentResults: Bundle) {
+            if (accept("segment")) this@VoiceChatManager.onSegmentResults(segmentResults)
+        }
+
+        override fun onEndOfSegmentedSession() {
+            if (accept("segmented_end")) this@VoiceChatManager.onEndOfSegmentedSession()
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) {
@@ -1360,11 +1443,42 @@ class VoiceChatManager(
         }
     }
 
+    override fun onSegmentResults(segmentResults: Bundle) {
+        if (discardCurrentRecognitionResult || !recognitionSessionActive) return
+        val segment =
+            segmentResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
+        if (segment.isBlank()) return
+        if (activeSegmentTexts.lastOrNull() != segment) activeSegmentTexts += segment
+        val combined = activeSegmentTexts.joinToString(" ").trim()
+        val partialBundle = Bundle().apply {
+            putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(combined))
+        }
+        onPartialResults(partialBundle)
+        Log.d(TAG, "Recognition #$recognitionSessionId segment count=${activeSegmentTexts.size}")
+    }
+
+    override fun onEndOfSegmentedSession() {
+        if (discardCurrentRecognitionResult || !recognitionSessionActive) return
+        val combined = activeSegmentTexts.joinToString(" ").trim()
+        val finalBundle = Bundle().apply {
+            if (combined.isNotBlank()) {
+                putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(combined))
+            }
+        }
+        Log.d(TAG, "Recognition #$recognitionSessionId segmented_session_end")
+        onResults(finalBundle)
+    }
+
     override fun onEvent(eventType: Int, params: Bundle?) {}
 
     private fun clearRecognitionSession() {
         recognitionSessionActive = false
         activeLanguageDetection = null
+        closeInjectedAudioSession()
+        activeSegmentTexts.clear()
     }
 }
 

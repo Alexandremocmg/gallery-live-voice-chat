@@ -127,6 +127,7 @@ class VoiceViewModel(
     )
   private val pronunciationRecorder = VoiceAudioRecorder()
   val voiceDiagnostics = voiceChatManager.diagnostics
+  val injectedAudioEnabled = voiceChatManager.injectedAudioEnabled
   private val conversationLanguageCoordinator = ConversationLanguageCoordinator()
   private val languageInstructionBuilder = LanguageInstructionBuilder()
 
@@ -901,6 +902,10 @@ class VoiceViewModel(
     if (_uiState.value is VoiceUiState.ReviewingTranscript) {
       _uiState.value = VoiceUiState.Idle
     }
+  }
+
+  fun setControlledAudioEnabled(enabled: Boolean) {
+    voiceChatManager.setInjectedAudioEnabled(enabled)
   }
 
   fun beginHoldToTalk() {
