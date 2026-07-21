@@ -11,12 +11,14 @@ class LogicalListeningWindowPolicyTest {
     speechStarted: Boolean = false,
     partialAvailable: Boolean = false,
     manualStop: Boolean = false,
+    automaticHandsFree: Boolean = false,
   ) = LogicalListeningWindowPolicy.shouldContinue(
     logicalElapsedMs = logicalElapsedMs,
     physicalAttempt = physicalAttempt,
     speechStarted = speechStarted,
     partialAvailable = partialAvailable,
     manualStopRequested = manualStop,
+    automaticHandsFree = automaticHandsFree,
   )
 
   @Test
@@ -37,6 +39,66 @@ class LogicalListeningWindowPolicyTest {
   @Test
   fun detectedSpeechNeverStartsUnrelatedAttempt() {
     assertFalse(decide(speechStarted = true))
+  }
+
+  @Test
+  fun handsFreeFalseStartWithoutPartialRearmsInsideLogicalWindow() {
+    assertTrue(decide(speechStarted = true, automaticHandsFree = true))
+  }
+
+  @Test
+  fun handsFreeFalseStartStillStopsAtAttemptLimit() {
+    assertFalse(
+      decide(
+        physicalAttempt = LogicalListeningWindowPolicy.MAX_PHYSICAL_ATTEMPTS,
+        speechStarted = true,
+        automaticHandsFree = true,
+      )
+    )
+  }
+
+  @Test
+  fun handsFreePartialAlwaysWinsOverRearming() {
+    assertFalse(
+      decide(
+        speechStarted = true,
+        partialAvailable = true,
+        automaticHandsFree = true,
+      )
+    )
+  }
+
+  @Test
+  fun exhaustedHandsFreeNoMatchEndsSilentlyWithoutPartial() {
+    assertTrue(
+      LogicalListeningWindowPolicy.shouldSuppressTerminalFailure(
+        automaticHandsFree = true,
+        partialAvailable = false,
+        manualStopRequested = false,
+      )
+    )
+  }
+
+  @Test
+  fun manualTurnNeverSuppressesTerminalFailure() {
+    assertFalse(
+      LogicalListeningWindowPolicy.shouldSuppressTerminalFailure(
+        automaticHandsFree = false,
+        partialAvailable = false,
+        manualStopRequested = false,
+      )
+    )
+  }
+
+  @Test
+  fun handsFreePartialNeverSuppressesTerminalFailure() {
+    assertFalse(
+      LogicalListeningWindowPolicy.shouldSuppressTerminalFailure(
+        automaticHandsFree = true,
+        partialAvailable = true,
+        manualStopRequested = false,
+      )
+    )
   }
 
   @Test

@@ -36,8 +36,8 @@ android {
     applicationId = "com.kabem.voice"
     minSdk = 26
     targetSdk = 37
-    versionCode = 41
-    versionName = "1.0.21"
+    versionCode = 44
+    versionName = "1.0.24"
 
     // Needed for HuggingFace auth workflows.
     // Use the scheme of the "Redirect URLs" in HuggingFace app.

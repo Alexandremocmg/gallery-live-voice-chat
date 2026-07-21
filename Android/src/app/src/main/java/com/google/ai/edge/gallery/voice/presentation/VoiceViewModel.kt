@@ -159,6 +159,13 @@ class VoiceViewModel(
     MutableStateFlow(modelManagerViewModel.readConnectivityMode())
   val connectivityMode: StateFlow<ConnectivityMode> = _connectivityMode.asStateFlow()
 
+  fun setConnectivityMode(mode: ConnectivityMode) {
+    if (_connectivityMode.value == mode) return
+    _connectivityMode.value = mode
+    modelManagerViewModel.saveConnectivityMode(mode)
+    voiceChatManager.setConnectivityMode(mode)
+  }
+
   private val _contextBudget = MutableStateFlow<ContextBudgetSnapshot?>(null)
   val contextBudget: StateFlow<ContextBudgetSnapshot?> = _contextBudget.asStateFlow()
 
@@ -429,9 +436,15 @@ class VoiceViewModel(
                   recognizedText = _recognizedText.value,
                 )
               delay(timing.autoRestartDelayMs)
-              if (_uiState.value is VoiceUiState.Idle) startListening()
+              if (_uiState.value is VoiceUiState.Idle) startListening(automaticHandsFree = true)
             } else if (_uiState.value is VoiceUiState.Speaking) {
               _uiState.value = VoiceUiState.Generating
+            } else if (
+              _uiState.value is VoiceUiState.Listening ||
+                _uiState.value is VoiceUiState.ProcessingSpeech
+            ) {
+              _uiState.value = VoiceUiState.Idle
+              conversationStateMachine.transitionTo(VoiceConversationPhase.IDLE)
             }
           }
         }
@@ -468,7 +481,7 @@ class VoiceViewModel(
     }
   }
 
-  fun startListening() {
+  fun startListening(automaticHandsFree: Boolean = false) {
     val model = activeModel
     if (model != null && modelManagerViewModel.uiState.value.isModelInitialized(model)) {
       _recognizedText.value = ""
@@ -491,6 +504,7 @@ class VoiceViewModel(
         baseRecognitionRequest.copy(
           possiblyCompleteSilenceMs = listeningTiming.possiblyCompleteSilenceMs,
           completeSilenceMs = listeningTiming.completeSilenceMs,
+          automaticHandsFree = automaticHandsFree,
         )
       val locale = recognitionRequest.primaryLocale
       val recognitionCapability = voiceChatManager.speechCapabilities.value[locale]

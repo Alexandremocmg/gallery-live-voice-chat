@@ -1,5 +1,8 @@
 package com.google.ai.edge.gallery.voice.domain
 
+import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
+import com.google.ai.edge.gallery.voice.language.RecognitionBackend
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,6 +74,58 @@ class RecognitionSessionPolicyTest {
         recognitionSessionActive = false,
         manualStopRequested = true,
       ),
+    )
+  }
+
+  @Test
+  fun invalidatingGenerationRejectsPendingRetryFromEndedSession() {
+    val scheduledSessionId = 11L
+    val invalidatedSessionId = RecognitionSessionPolicy.invalidate(scheduledSessionId)
+
+    assertEquals(12L, invalidatedSessionId)
+    assertFalse(
+      RecognitionSessionPolicy.executeRetry(
+        scheduledForSessionId = scheduledSessionId,
+        activeSessionId = invalidatedSessionId,
+        recognitionSessionActive = false,
+        manualStopRequested = false,
+      ),
+    )
+  }
+
+  @Test
+  fun enteringPrivateModeAlwaysRequiresRecognitionInvalidation() {
+    assertTrue(
+      RecognitionSessionPolicy.invalidateForConnectivityMode(
+        ConnectivityMode.PRIVATE_OFFLINE
+      )
+    )
+    assertFalse(
+      RecognitionSessionPolicy.invalidateForConnectivityMode(
+        ConnectivityMode.CONNECTED
+      )
+    )
+  }
+
+  @Test
+  fun privateModeAllowsOnlyOnDeviceRecognizer() {
+    assertTrue(
+      RecognitionSessionPolicy.backendAllowed(
+        mode = ConnectivityMode.PRIVATE_OFFLINE,
+        backend = RecognitionBackend.ANDROID_ON_DEVICE,
+      )
+    )
+    assertFalse(
+      RecognitionSessionPolicy.backendAllowed(
+        mode = ConnectivityMode.PRIVATE_OFFLINE,
+        backend = RecognitionBackend.ANDROID_SYSTEM,
+      )
+    )
+    assertTrue(
+      RecognitionSessionPolicy.backendAllowed(
+        mode = ConnectivityMode.CONNECTED,
+        backend = RecognitionBackend.ANDROID_SYSTEM,
+      )
     )
   }
 }

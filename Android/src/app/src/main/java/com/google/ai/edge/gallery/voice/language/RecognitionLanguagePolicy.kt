@@ -14,6 +14,7 @@ data class SpeechRecognitionRequest(
   val switchingSensitivity: LanguageSwitchingSensitivity = LanguageSwitchingSensitivity.BALANCED,
   val possiblyCompleteSilenceMs: Long = DEFAULT_POSSIBLY_COMPLETE_SILENCE_MS,
   val completeSilenceMs: Long = DEFAULT_COMPLETE_SILENCE_MS,
+  val automaticHandsFree: Boolean = false,
 ) {
   init {
     require(primaryLocale in allowedLocales) { "Primary locale must be allowed" }

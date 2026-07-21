@@ -10,10 +10,20 @@ object LogicalListeningWindowPolicy {
     speechStarted: Boolean,
     partialAvailable: Boolean,
     manualStopRequested: Boolean,
+    automaticHandsFree: Boolean = false,
   ): Boolean =
     logicalElapsedMs < INITIAL_SPEECH_WINDOW_MS &&
       physicalAttempt < MAX_PHYSICAL_ATTEMPTS &&
-      !speechStarted &&
+      (!speechStarted || automaticHandsFree) &&
+      !partialAvailable &&
+      !manualStopRequested
+
+  fun shouldSuppressTerminalFailure(
+    automaticHandsFree: Boolean,
+    partialAvailable: Boolean,
+    manualStopRequested: Boolean,
+  ): Boolean =
+    automaticHandsFree &&
       !partialAvailable &&
       !manualStopRequested
 }

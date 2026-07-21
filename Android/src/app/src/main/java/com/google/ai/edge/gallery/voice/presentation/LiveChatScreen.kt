@@ -325,12 +325,16 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         )
     }
 
+    val isActive = uiState is VoiceUiState.Listening ||
+        uiState is VoiceUiState.ProcessingSpeech ||
+        uiState is VoiceUiState.Speaking
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Status indicator
         Text(
@@ -348,6 +352,54 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
             else
                 MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Modo conectado", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = connectivityMode == ConnectivityMode.CONNECTED,
+                        onCheckedChange = { connected ->
+                            viewModel.setConnectivityMode(
+                                if (connected) ConnectivityMode.CONNECTED
+                                else ConnectivityMode.PRIVATE_OFFLINE
+                            )
+                        },
+                        enabled = !isActive || connectivityMode == ConnectivityMode.CONNECTED,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Áudio controlado", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = injectedAudioEnabled,
+                        onCheckedChange = viewModel::setControlledAudioEnabled,
+                        enabled = !isActive || injectedAudioEnabled,
+                    )
+                }
+                if (injectedAudioEnabled) {
+                    Text(
+                        text = "Pode usar rede; para privacidade estrita, desligue.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -398,19 +450,6 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     label = { Text(skill.name) },
                 )
             }
-            AssistChip(
-                onClick = {},
-                enabled = false,
-                label = {
-                    Text(
-                        if (connectivityMode == ConnectivityMode.PRIVATE_OFFLINE) {
-                            "Privado"
-                        } else {
-                            "Conectado"
-                        }
-                    )
-                },
-            )
         }
 
         val localVoiceSettingsAction = speechReadiness.localVoiceSettingsAction
@@ -681,9 +720,6 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                 WaveformAnimation(isListening = uiState is VoiceUiState.Listening || uiState is VoiceUiState.ProcessingSpeech)
             }
 
-            val isActive = uiState is VoiceUiState.Listening ||
-                uiState is VoiceUiState.ProcessingSpeech ||
-                uiState is VoiceUiState.Speaking
             val buttonColor = if (isActive)
                 MaterialTheme.colorScheme.error
             else
@@ -780,21 +816,6 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = "Áudio controlado",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                            Switch(
-                                checked = injectedAudioEnabled,
-                                onCheckedChange = viewModel::setControlledAudioEnabled,
-                                enabled = !isActive,
-                                modifier = Modifier.height(28.dp),
-                            )
-                        }
                         voiceDiagnostics.lastError?.let { error ->
                             Text(
                                 text = error,

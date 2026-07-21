@@ -73,6 +73,8 @@ class VoiceChatManager(
     private var ttsInitialized = false
     private var voiceMode = initialVoiceMode
     private var recognitionBackend = RecognitionBackend.UNAVAILABLE
+    private var systemRecognizerAvailable = false
+    private var onDeviceRecognizerAvailable = false
     private var connectivityMode = initialConnectivityMode
     private var activeListeningLocale = SpeechLocale.PT_BR
     private var activeRecognitionRequest = SpeechRecognitionRequest.single(SpeechLocale.PT_BR)
@@ -115,12 +117,124 @@ class VoiceChatManager(
     val injectedAudioEnabled: StateFlow<Boolean> = _injectedAudioEnabled
 
     fun setInjectedAudioEnabled(enabled: Boolean): Boolean {
+        if (!enabled) {
+            return disableInjectedAudioImmediately()
+        }
         if (recognitionSessionActive) {
-            _voiceNotice.value = "Finalize a escuta atual antes de mudar o audio controlado."
+            _voiceNotice.value = "Finalize a escuta atual antes de ativar o audio controlado."
             return false
         }
-        _injectedAudioEnabled.value = enabled
-        publishDiagnostics(if (enabled) "ControlledAudioEnabled" else "Idle")
+        val preferredBackend =
+            SpeechBackendPolicy.select(
+                apiLevel = Build.VERSION.SDK_INT,
+                onDeviceAvailable = onDeviceRecognizerAvailable,
+                systemRecognizerAvailable = systemRecognizerAvailable,
+            )
+        val privateOffline = connectivityMode == ConnectivityMode.PRIVATE_OFFLINE
+        val targetBackend =
+            InjectedAudioRecognitionPolicy.selectBackend(
+                apiLevel = Build.VERSION.SDK_INT,
+                featureEnabled = true,
+                preferredBackend = preferredBackend,
+                systemRecognizerAvailable = systemRecognizerAvailable,
+                privateOffline = privateOffline,
+            )
+        if (targetBackend != RecognitionBackend.ANDROID_SYSTEM) {
+            _voiceNotice.value =
+                if (privateOffline) {
+                    "Audio controlado bloqueado no Modo Privado: o reconhecedor do sistema nao garante processamento offline."
+                } else {
+                    "Audio controlado indisponivel neste aparelho."
+                }
+            return false
+        }
+        if (targetBackend != recognitionBackend && !replaceRecognitionBackend(targetBackend)) {
+            _voiceNotice.value = "Nao foi possivel preparar o backend de audio controlado."
+            return false
+        }
+        _injectedAudioEnabled.value = true
+        _voiceNotice.value =
+            "Audio controlado ativo: o reconhecedor do sistema pode usar a rede. " +
+                "Para privacidade estrita, mantenha este modo desligado."
+        publishDiagnostics("ControlledAudioEnabled")
+        return true
+    }
+
+    private fun disableInjectedAudioImmediately(): Boolean {
+        _injectedAudioEnabled.value = false
+        invalidateRecognitionOperations()
+        val restored = restorePreferredRecognitionBackend()
+        _voiceNotice.value =
+            if (restored) {
+                null
+            } else {
+                "Audio controlado desligado. Nao foi possivel restaurar o backend preferido; " +
+                    "a proxima escuta usara o servico atual sem injecao de audio."
+            }
+        publishDiagnostics("Idle")
+        return true
+    }
+
+    private fun invalidateRecognitionOperations() {
+        mainHandler.removeCallbacksAndMessages(null)
+        recognitionSessionId = RecognitionSessionPolicy.invalidate(recognitionSessionId)
+        recognitionRetryAttempt = 0
+        manualStopRequested = true
+        discardCurrentRecognitionResult = true
+        activePartialRecognitionResult = null
+        closeInjectedAudioSession()
+        clearRecognitionSession()
+        speechRecognizer?.cancel()
+        _recognizedText.value = ""
+        _speechState.value = SpeechState.Idle
+    }
+
+    private fun restorePreferredRecognitionBackend(): Boolean {
+        val preferredBackend =
+            SpeechBackendPolicy.select(
+                apiLevel = Build.VERSION.SDK_INT,
+                onDeviceAvailable = onDeviceRecognizerAvailable,
+                systemRecognizerAvailable = systemRecognizerAvailable,
+            )
+        return preferredBackend == recognitionBackend || replaceRecognitionBackend(preferredBackend)
+    }
+
+    private fun replaceRecognitionBackend(targetBackend: RecognitionBackend): Boolean {
+        val replacement =
+            try {
+                when (targetBackend) {
+                    RecognitionBackend.ANDROID_ON_DEVICE ->
+                        if (
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                            onDeviceRecognizerAvailable
+                        ) {
+                            SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                        } else {
+                            null
+                        }
+                    RecognitionBackend.ANDROID_SYSTEM ->
+                        if (systemRecognizerAvailable) {
+                            SpeechRecognizer.createSpeechRecognizer(context)
+                        } else {
+                            null
+                        }
+                    else -> null
+                }
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to switch recognition backend to $targetBackend", exception)
+                null
+            }
+        if (replacement == null) return false
+
+        closeInjectedAudioSession()
+        speechRecognizer?.cancel()
+        speechRecognizer?.destroy()
+        speechRecognizer = replacement
+        recognitionBackend = targetBackend
+        recognitionRetryAttempt = 0
+        logicalPhysicalAttempt = 0
+        refreshLanguageCapabilities()
+        Log.i(TAG, "Recognition backend switched to $targetBackend")
         return true
     }
 
@@ -155,15 +269,15 @@ class VoiceChatManager(
     }
 
     private fun initSpeechRecognizer() {
-        val systemAvailable = SpeechRecognizer.isRecognitionAvailable(context)
-        val onDeviceAvailable =
+        systemRecognizerAvailable = SpeechRecognizer.isRecognitionAvailable(context)
+        onDeviceRecognizerAvailable =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
         recognitionBackend =
             SpeechBackendPolicy.select(
                 apiLevel = Build.VERSION.SDK_INT,
-                onDeviceAvailable = onDeviceAvailable,
-                systemRecognizerAvailable = systemAvailable,
+                onDeviceAvailable = onDeviceRecognizerAvailable,
+                systemRecognizerAvailable = systemRecognizerAvailable,
             )
         if (recognitionBackend == RecognitionBackend.ANDROID_SYSTEM) {
             _voiceNotice.value =
@@ -180,13 +294,13 @@ class VoiceChatManager(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create preferred recognizer; trying system recognizer", e)
             recognitionBackend =
-                if (systemAvailable) RecognitionBackend.ANDROID_SYSTEM
+                if (systemRecognizerAvailable) RecognitionBackend.ANDROID_SYSTEM
                 else RecognitionBackend.UNAVAILABLE
             if (recognitionBackend == RecognitionBackend.ANDROID_SYSTEM) {
                 _voiceNotice.value =
                     "O reconhecimento local falhou e o servico do sistema sera usado. Confirme o pacote offline antes do modo aviao."
             }
-            if (systemAvailable) SpeechRecognizer.createSpeechRecognizer(context) else null
+            if (systemRecognizerAvailable) SpeechRecognizer.createSpeechRecognizer(context) else null
         }
 
         if (speechRecognizer != null) {
@@ -304,7 +418,29 @@ class VoiceChatManager(
     }
 
     fun setConnectivityMode(mode: ConnectivityMode) {
+        var privateBackendReady = true
+        if (RecognitionSessionPolicy.invalidateForConnectivityMode(mode)) {
+            _injectedAudioEnabled.value = false
+            invalidateRecognitionOperations()
+            privateBackendReady =
+                recognitionBackend == RecognitionBackend.ANDROID_ON_DEVICE ||
+                    (
+                        onDeviceRecognizerAvailable &&
+                            replaceRecognitionBackend(RecognitionBackend.ANDROID_ON_DEVICE)
+                    )
+        }
         connectivityMode = mode
+        _voiceNotice.value =
+            when {
+                mode == ConnectivityMode.PRIVATE_OFFLINE && !privateBackendReady ->
+                    "Modo Privado ativo, mas o reconhecedor on-device esta indisponivel; " +
+                        "a escuta permanecera bloqueada."
+                mode == ConnectivityMode.PRIVATE_OFFLINE ->
+                    "Modo Privado ativo: reconhecimento on-device e recursos de rede bloqueados."
+                else ->
+                    "Modo Conectado ativo: recursos do sistema podem usar a rede."
+            }
+        publishDiagnostics("Idle")
     }
 
     fun setOnVoiceBargeIn(listener: (() -> Unit)?) {
@@ -382,17 +518,15 @@ class VoiceChatManager(
         manualStopRequested = false
         recognitionSessionStartedAtMs = SystemClock.elapsedRealtime()
         recognitionSessionId += 1
-        val localPackConfirmed =
-            _speechCapabilities.value[request.primaryLocale]?.languagePackStatus ==
-                LanguagePackStatus.INSTALLED
         if (
-            connectivityMode == ConnectivityMode.PRIVATE_OFFLINE &&
-                recognitionBackend != RecognitionBackend.ANDROID_ON_DEVICE &&
-                !localPackConfirmed
+            !RecognitionSessionPolicy.backendAllowed(
+                mode = connectivityMode,
+                backend = recognitionBackend,
+            )
         ) {
             _speechState.value =
                 SpeechState.Error(
-                    "Modo Privado: instale o reconhecimento offline deste idioma antes de falar."
+                    "Modo Privado exige o reconhecedor on-device; mude para Conectado ou tente novamente."
                 )
             return
         }
@@ -1024,6 +1158,27 @@ class VoiceChatManager(
         ) {
             return
         }
+        val handsFreeTerminalFailure =
+            transientError in setOf(
+                SpeechRecognitionTransientError.NO_MATCH,
+                SpeechRecognitionTransientError.SPEECH_TIMEOUT,
+            ) &&
+                LogicalListeningWindowPolicy.shouldSuppressTerminalFailure(
+                    automaticHandsFree = activeRecognitionRequest.automaticHandsFree,
+                    partialAvailable = partialAvailable,
+                    manualStopRequested = manualStopRequested,
+                )
+        if (handsFreeTerminalFailure) {
+            Log.i(
+                TAG,
+                "Hands-free recognition ended silently after elapsedMs=$elapsedMs " +
+                    "physical=$logicalPhysicalAttempt error=$transientError",
+            )
+            manualStopRequested = false
+            publishDiagnostics("Idle")
+            _speechState.value = SpeechState.Idle
+            return
+        }
         val errorMessage = when (error) {
             SpeechRecognizer.ERROR_AUDIO -> "Falha ao acessar o audio do microfone"
             SpeechRecognizer.ERROR_CLIENT -> "O reconhecimento de voz foi interrompido"
@@ -1115,6 +1270,7 @@ class VoiceChatManager(
                 speechStarted = speechStarted,
                 partialAvailable = partialAvailable,
                 manualStopRequested = manualStopRequested,
+                automaticHandsFree = activeRecognitionRequest.automaticHandsFree,
             )
         ) {
             return false
