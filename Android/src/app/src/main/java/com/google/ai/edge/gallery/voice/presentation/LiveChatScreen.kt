@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -73,6 +75,8 @@ import com.google.ai.edge.gallery.voice.language.SpeechReadinessPolicy
 import com.google.ai.edge.gallery.voice.intelligence.CognitiveMode
 import com.google.ai.edge.gallery.voice.intelligence.ConnectivityMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
@@ -225,6 +229,7 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
         viewModel.automaticLanguageSwitchingEnabled.collectAsState()
     val voiceNotice by viewModel.voiceNotice.collectAsState()
     val speechCapabilities by viewModel.speechCapabilities.collectAsState()
+    val voiceDiagnostics by viewModel.voiceDiagnostics.collectAsState()
     val localTtsAvailabilityKnown by viewModel.localTtsAvailabilityKnown.collectAsState()
     val attachedImages by viewModel.attachedImages.collectAsState()
     val attachedAudioName by viewModel.attachedAudioName.collectAsState()
@@ -720,7 +725,27 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                     modifier = Modifier
                         .size(100.dp)
                         .background(buttonColor, CircleShape)
-                        .clickable { viewModel.toggleListening() },
+                        .pointerInput(viewModel) {
+                            detectTapGestures(
+                                onPress = {
+                                    coroutineScope {
+                                        var holdActivated = false
+                                        val holdJob = launch {
+                                            delay(VoiceInputGesturePolicy.HOLD_THRESHOLD_MS)
+                                            holdActivated = true
+                                            viewModel.beginHoldToTalk()
+                                        }
+                                        val released = tryAwaitRelease()
+                                        holdJob.cancel()
+                                        if (holdActivated) {
+                                            viewModel.endHoldToTalk()
+                                        } else if (released) {
+                                            viewModel.toggleListening()
+                                        }
+                                    }
+                                }
+                            )
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -729,6 +754,39 @@ fun LiveChatScreen(viewModel: VoiceViewModel) {
                         modifier = Modifier.size(48.dp),
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
+                }
+                Text(
+                    text = if (isActive) "Solte ou toque para finalizar" else "Toque ou segure para falar",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = "${voiceDiagnostics.backend.name} • " +
+                                "${voiceDiagnostics.locale.languageTag} • ${voiceDiagnostics.phase}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Text(
+                            text = "Tentativa ${voiceDiagnostics.physicalAttempt} • " +
+                                voiceDiagnostics.privacyLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        voiceDiagnostics.lastError?.let { error ->
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),

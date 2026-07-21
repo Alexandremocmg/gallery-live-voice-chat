@@ -21,6 +21,7 @@ import com.google.ai.edge.gallery.data.TtsVoiceMode
 import com.google.ai.edge.gallery.voice.language.LanguagePackStatus
 import com.google.ai.edge.gallery.voice.language.LanguageConfidence
 import com.google.ai.edge.gallery.voice.language.LanguageSwitchingSensitivity
+import com.google.ai.edge.gallery.voice.language.LogicalListeningWindowPolicy
 import com.google.ai.edge.gallery.voice.language.PartialRecognitionRecoveryPolicy
 import com.google.ai.edge.gallery.voice.language.PartialRecognitionTerminalError
 import com.google.ai.edge.gallery.voice.language.RecognizedWord
@@ -83,6 +84,8 @@ class VoiceChatManager(
     @Volatile private var activePartialRecognitionResult: SpeechRecognitionResult? = null
     private var recognitionRetryAttempt = 0
     private var recognitionSessionStartedAtMs = 0L
+    private var logicalListeningStartedAtMs = 0L
+    private var logicalPhysicalAttempt = 0
     private var recognitionSessionId = 0L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val localVoices = mutableMapOf<SpeechLocale, Voice>()
@@ -101,6 +104,22 @@ class VoiceChatManager(
 
     private val _speechState = MutableStateFlow<SpeechState>(SpeechState.Idle)
     val speechState: StateFlow<SpeechState> = _speechState
+
+    private val _diagnostics = MutableStateFlow(VoiceDiagnosticsSnapshot())
+    val diagnostics: StateFlow<VoiceDiagnosticsSnapshot> = _diagnostics
+
+    private fun publishDiagnostics(phase: String, lastError: String? = null) {
+        _diagnostics.value =
+            VoiceDiagnosticsSnapshot(
+                backend = recognitionBackend,
+                locale = activeListeningLocale,
+                phase = phase,
+                sessionId = recognitionSessionId,
+                physicalAttempt = logicalPhysicalAttempt,
+                lastError = lastError,
+                privacyLabel = VoiceDiagnosticsPolicy.privacyLabel(connectivityMode, recognitionBackend),
+            )
+    }
 
     private val _recognizedText = MutableStateFlow("")
     val recognizedText: StateFlow<String> = _recognizedText
@@ -323,6 +342,8 @@ class VoiceChatManager(
     }
 
     fun startListening(request: SpeechRecognitionRequest) {
+        logicalListeningStartedAtMs = SystemClock.elapsedRealtime()
+        logicalPhysicalAttempt = 0
         startListeningInternal(request, resetRetry = true)
     }
 
@@ -331,6 +352,7 @@ class VoiceChatManager(
         resetRetry: Boolean,
     ) {
         if (resetRetry) recognitionRetryAttempt = 0
+        logicalPhysicalAttempt += 1
         // ASR and TTS cannot share the microphone/speech state safely. A new recognition
         // session always owns the audio channel and cancels stale playback callbacks.
         stopSpeaking()
@@ -366,10 +388,12 @@ class VoiceChatManager(
         speechRecognizer?.setRecognitionListener(SessionRecognitionListener(sessionId))
         recognitionSessionActive = true
         _speechState.value = SpeechState.Listening
+        publishDiagnostics("Preparing")
         _recognizedText.value = ""
         Log.d(
             TAG,
-            "Recognition request #$recognitionSessionId attempt=$recognitionRetryAttempt: " +
+            "Recognition request #$recognitionSessionId retry=$recognitionRetryAttempt " +
+                "physical=$logicalPhysicalAttempt: " +
                 "primary=${request.primaryLocale.languageTag}, backend=$recognitionBackend, " +
                 "detection=${request.detectionEnabled}, switching=${request.switchingEnabled}",
         )
@@ -852,11 +876,13 @@ class VoiceChatManager(
         Log.d(TAG, "Recognition #$recognitionSessionId ready")
         if (discardCurrentRecognitionResult) return
         _speechState.value = SpeechState.Listening
+        publishDiagnostics("Ready")
     }
-
     override fun onBeginningOfSpeech() {
-        speechStartedInSession = true
         Log.d(TAG, "Recognition #$recognitionSessionId beginning_of_speech")
+        if (discardCurrentRecognitionResult) return
+        speechStartedInSession = true
+        publishDiagnostics("InSpeech")
     }
     override fun onRmsChanged(rmsdB: Float) {}
     override fun onBufferReceived(buffer: ByteArray?) {}
@@ -864,6 +890,7 @@ class VoiceChatManager(
         Log.d(TAG, "Recognition #$recognitionSessionId end_of_speech")
         if (discardCurrentRecognitionResult) return
         _speechState.value = SpeechState.Processing
+        publishDiagnostics("Finalizing")
     }
 
     override fun onError(error: Int) {
@@ -875,16 +902,36 @@ class VoiceChatManager(
         }
         val elapsedMs = (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
         val partialAvailable = activePartialRecognitionResult?.text?.isNotBlank() == true
+        val speechStarted = speechStartedInSession
         if (recoverPartialRecognition(error.toPartialRecognitionTerminalError())) {
             return
         }
         activePartialRecognitionResult = null
         clearRecognitionSession()
-        val retryScheduled = !manualStopRequested && retryTransientRecognitionError(error, elapsedMs)
+        val transientError = error.toTransientRecognitionError()
+        val logicalContinuationScheduled =
+            transientError != null &&
+                continueLogicalListening(
+                    error = transientError,
+                    speechStarted = speechStarted,
+                    partialAvailable = partialAvailable,
+                )
+        if (logicalContinuationScheduled) {
+            return
+        }
+        val systemInitialSpeechTerminal =
+            recognitionBackend == RecognitionBackend.ANDROID_SYSTEM &&
+                transientError in setOf(
+                    SpeechRecognitionTransientError.NO_MATCH,
+                    SpeechRecognitionTransientError.SPEECH_TIMEOUT,
+                )
+        val retryScheduled =
+            !systemInitialSpeechTerminal &&
+                !manualStopRequested &&
+                retryTransientRecognitionError(error, elapsedMs)
         if (retryScheduled) {
             return
         }
-        val transientError = error.toTransientRecognitionError()
         if (transientError != null &&
             fallbackFromUnhealthyOnDeviceRecognizer(
                 error = transientError,
@@ -925,6 +972,7 @@ class VoiceChatManager(
             recreateSpeechRecognizer()
         }
         manualStopRequested = false
+        publishDiagnostics("Error", errorMessage)
         _speechState.value = SpeechState.Error(errorMessage)
     }
 
@@ -943,6 +991,7 @@ class VoiceChatManager(
         manualStopRequested = false
         _recognizedText.value = partial.text
         _voiceNotice.value = "Usei a fala que já tinha sido reconhecida."
+        publishDiagnostics("ResultReady")
         Log.i(
             TAG,
             "Recognition #$recognitionSessionId recovered partial result after $error: " +
@@ -961,6 +1010,59 @@ class VoiceChatManager(
                 PartialRecognitionTerminalError.SERVER_DISCONNECTED
             else -> PartialRecognitionTerminalError.NON_RECOVERABLE
         }
+
+    private fun continueLogicalListening(
+        error: SpeechRecognitionTransientError,
+        speechStarted: Boolean,
+        partialAvailable: Boolean,
+    ): Boolean {
+        if (recognitionBackend != RecognitionBackend.ANDROID_SYSTEM ||
+            error !in setOf(
+                SpeechRecognitionTransientError.NO_MATCH,
+                SpeechRecognitionTransientError.SPEECH_TIMEOUT,
+            )
+        ) {
+            return false
+        }
+        val logicalElapsedMs =
+            (SystemClock.elapsedRealtime() - logicalListeningStartedAtMs).coerceAtLeast(0L)
+        if (!LogicalListeningWindowPolicy.shouldContinue(
+                logicalElapsedMs = logicalElapsedMs,
+                physicalAttempt = logicalPhysicalAttempt,
+                speechStarted = speechStarted,
+                partialAvailable = partialAvailable,
+                manualStopRequested = manualStopRequested,
+            )
+        ) {
+            return false
+        }
+
+        val request = activeRecognitionRequest
+        val completedSessionId = recognitionSessionId
+        Log.i(
+            TAG,
+            "Logical listening continues after session=$completedSessionId error=$error " +
+                "elapsedMs=$logicalElapsedMs physical=$logicalPhysicalAttempt",
+        )
+        mainHandler.post {
+            if (!RecognitionSessionPolicy.executeRetry(
+                    scheduledForSessionId = completedSessionId,
+                    activeSessionId = recognitionSessionId,
+                    recognitionSessionActive = recognitionSessionActive,
+                    manualStopRequested = manualStopRequested,
+                )
+            ) {
+                Log.w(
+                    TAG,
+                    "Ignoring stale logical continuation scheduledFor=$completedSessionId " +
+                        "activeSession=$recognitionSessionId",
+                )
+                return@post
+            }
+            startListeningInternal(request, resetRetry = false)
+        }
+        return true
+    }
 
     private fun fallbackFromUnhealthyOnDeviceRecognizer(
         error: SpeechRecognitionTransientError,
@@ -995,6 +1097,8 @@ class VoiceChatManager(
         speechRecognizer = replacement
         recognitionBackend = RecognitionBackend.ANDROID_SYSTEM
         recognitionRetryAttempt = 0
+        logicalListeningStartedAtMs = SystemClock.elapsedRealtime()
+        logicalPhysicalAttempt = 0
         _voiceNotice.value =
             "O reconhecedor local encerrou cedo demais; usando o servico offline alternativo."
         Log.w(
@@ -1132,6 +1236,7 @@ class VoiceChatManager(
                     languageDetection = languageDetection,
                 )
             _recognizedText.value = recognitionResult.text
+            publishDiagnostics("ResultReady")
             _speechState.value = SpeechState.ResultReady(recognitionResult)
         } else {
             if (recoverPartialRecognition(PartialRecognitionTerminalError.EMPTY_RESULTS)) {
@@ -1140,12 +1245,22 @@ class VoiceChatManager(
             activePartialRecognitionResult = null
             val elapsedMs =
                 (SystemClock.elapsedRealtime() - recognitionSessionStartedAtMs).coerceAtLeast(0L)
-            if (!manualStopRequested &&
+            val speechStarted = speechStartedInSession
+            clearRecognitionSession()
+            if (continueLogicalListening(
+                    error = SpeechRecognitionTransientError.NO_MATCH,
+                    speechStarted = speechStarted,
+                    partialAvailable = false,
+                )
+            ) {
+                return
+            }
+            if (recognitionBackend != RecognitionBackend.ANDROID_SYSTEM &&
+                !manualStopRequested &&
                 retryTransientRecognitionError(SpeechRecognizer.ERROR_NO_MATCH, elapsedMs)
             ) {
                 return
             }
-            clearRecognitionSession()
             manualStopRequested = false
             _speechState.value = SpeechState.Idle
         }

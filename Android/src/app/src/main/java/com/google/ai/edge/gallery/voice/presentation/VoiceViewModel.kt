@@ -126,6 +126,7 @@ class VoiceViewModel(
       initialConnectivityMode = modelManagerViewModel.readConnectivityMode(),
     )
   private val pronunciationRecorder = VoiceAudioRecorder()
+  val voiceDiagnostics = voiceChatManager.diagnostics
   private val conversationLanguageCoordinator = ConversationLanguageCoordinator()
   private val languageInstructionBuilder = LanguageInstructionBuilder()
 
@@ -216,6 +217,7 @@ class VoiceViewModel(
   val memoryEnabled: StateFlow<Boolean> = _memoryEnabled.asStateFlow()
 
   private var activeModel: Model? = null
+  private var holdToTalkActive = false
   private var downloadedVoiceModels: List<Model> = emptyList()
   private var activeTask: Task? = null
   private var automaticVoiceDownloadRequested = false
@@ -898,6 +900,31 @@ class VoiceViewModel(
     _recognizedText.value = ""
     if (_uiState.value is VoiceUiState.ReviewingTranscript) {
       _uiState.value = VoiceUiState.Idle
+    }
+  }
+
+  fun beginHoldToTalk() {
+    if (holdToTalkActive) return
+    when (_uiState.value) {
+      is VoiceUiState.Idle -> {
+        holdToTalkActive = true
+        startListening()
+      }
+      is VoiceUiState.Speaking -> {
+        holdToTalkActive = true
+        interruptCurrentResponseAndListen(ttsAlreadyInterrupted = false)
+      }
+      else -> Unit
+    }
+  }
+
+  fun endHoldToTalk() {
+    if (!holdToTalkActive) return
+    holdToTalkActive = false
+    when (_uiState.value) {
+      is VoiceUiState.Listening,
+      is VoiceUiState.ProcessingSpeech -> stopListening()
+      else -> Unit
     }
   }
 
